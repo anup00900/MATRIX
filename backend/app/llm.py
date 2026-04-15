@@ -50,6 +50,36 @@ class LLM:
     async def chat(self, messages: list[dict], **kw) -> str:
         return await self._chat_raw(messages, **kw)
 
+    async def vision_chat(self, *, system: str, user_text: str,
+                          image_b64_png: str, max_tokens: int = 4000,
+                          temperature: float = 0.0) -> str:
+        backoff = 1.0
+        for attempt in range(5):
+            try:
+                resp = await self.client.chat.completions.create(
+                    model=self.deployment,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    messages=[
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": [
+                            {"type": "text", "text": user_text},
+                            {"type": "image_url",
+                             "image_url": {"url": f"data:image/png;base64,{image_b64_png}"}},
+                        ]},
+                    ],
+                )
+                if resp.usage: self._cost_tokens += resp.usage.total_tokens
+                return resp.choices[0].message.content or ""
+            except RateLimitError as e:
+                retry_after = getattr(e, "retry_after", None) or backoff
+                log.warning("llm.vision.rate_limited", retry_after=retry_after)
+                await asyncio.sleep(retry_after); backoff *= 2
+            except APIError as e:
+                if attempt == 4: raise LLMError(str(e)) from e
+                await asyncio.sleep(backoff); backoff *= 2
+        raise LLMError("vision_chat exhausted retries")
+
     async def structured(self, *, messages: list[dict], schema: Type[T],
                          temperature: float = 0.0, max_tokens: int = 2000) -> T:
         schema_hint = json.dumps(schema.model_json_schema())

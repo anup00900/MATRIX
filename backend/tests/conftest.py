@@ -8,3 +8,5 @@ they patch `LLM._chat_raw` instead.
 import os
 
 os.environ.setdefault("AZURE_OPENAI_API_KEY", "test-dummy-key")
+# tiktoken cache dir: avoids network + SSL issues for cl100k_base encoding
+os.environ.setdefault("TIKTOKEN_CACHE_DIR", "/tmp/tiktoken_cache")
