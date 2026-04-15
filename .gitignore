@@ -9,3 +9,8 @@ frontend/dist/
 bench/results/
 *.log
 .DS_Store
+
+backend/*.egg-info/
+backend/**/*.egg-info/
+__pycache__/
+*.pyc
