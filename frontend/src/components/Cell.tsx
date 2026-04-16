@@ -7,12 +7,12 @@ import { CellRenderer } from "./CellRenderer";
 const DOT: Record<string, string> = {
   idle: "bg-zinc-700",
   queued: "bg-zinc-500",
-  retrieving: "bg-[--color-accent-streaming] animate-pulse",
-  drafting: "bg-[--color-accent-streaming] animate-pulse",
-  verifying: "bg-[--color-accent-verify] animate-pulse",
-  done: "bg-[--color-accent-done]",
-  stale: "bg-[--color-accent-stale]",
-  failed: "bg-[--color-accent-fail]",
+  retrieving: "bg-[var(--color-accent-streaming)] animate-pulse",
+  drafting: "bg-[var(--color-accent-streaming)] animate-pulse",
+  verifying: "bg-[var(--color-accent-verify)] animate-pulse",
+  done: "bg-[var(--color-accent-done)]",
+  stale: "bg-[var(--color-accent-stale)]",
+  failed: "bg-[var(--color-accent-fail)]",
 };
 
 const STREAMING = new Set(["queued", "retrieving", "drafting", "verifying"]);
@@ -25,8 +25,8 @@ export function Cell({ cell }: { cell: TCell }) {
       onClick={() => focus(cell.id)}
       className={cn(
         "relative h-9 px-2 flex items-center gap-2 cursor-pointer",
-        "hover:bg-[--color-surface-2] text-[13px] border-r border-[--color-border]",
-        focused === cell.id && "bg-[--color-surface-2] ring-1 ring-inset ring-[--color-accent-streaming]/60",
+        "hover:bg-[var(--color-surface-2)] text-[13px] border-r border-[var(--color-border)]",
+        focused === cell.id && "bg-[var(--color-surface-2)] ring-1 ring-inset ring-[var(--color-accent-streaming)]/60",
       )}
     >
       <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", DOT[cell.status] ?? "bg-zinc-700")} />
@@ -35,7 +35,7 @@ export function Cell({ cell }: { cell: TCell }) {
       </div>
       {STREAMING.has(cell.status) && (
         <motion.div
-          className="absolute bottom-0 left-0 h-[2px] bg-[--color-accent-streaming]"
+          className="absolute bottom-0 left-0 h-[2px] bg-[var(--color-accent-streaming)]"
           initial={{ width: "10%" }}
           animate={{ width: "90%" }}
           transition={{ duration: 1.6, repeat: Infinity, repeatType: "reverse" }}

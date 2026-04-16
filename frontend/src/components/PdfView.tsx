@@ -61,7 +61,7 @@ export function PdfView({ url, page, highlight, scale = 1.2 }: Props) {
   return (
     <canvas
       ref={canvasRef}
-      className="rounded border border-[--color-border] max-w-full h-auto block"
+      className="rounded border border-[var(--color-border)] max-w-full h-auto block"
     />
   );
 }

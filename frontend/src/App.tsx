@@ -68,10 +68,10 @@ export default function App() {
     return (
       <div className="h-full flex items-center justify-center p-8">
         <div className="max-w-md text-center space-y-2">
-          <div className="text-[--color-accent-fail] text-lg">Cannot reach backend</div>
-          <div className="text-[--color-muted] text-[12px] font-[--font-mono] break-all">{bootErr}</div>
-          <div className="text-[--color-muted] text-[12px]">
-            Start it with <kbd className="px-1 py-0.5 border border-[--color-border] rounded font-[--font-mono]">make backend</kbd>.
+          <div className="text-[var(--color-accent-fail)] text-lg">Cannot reach backend</div>
+          <div className="text-[var(--color-muted)] text-[12px] font-[var(--font-mono)] break-all">{bootErr}</div>
+          <div className="text-[var(--color-muted)] text-[12px]">
+            Start it with <kbd className="px-1 py-0.5 border border-[var(--color-border)] rounded font-[var(--font-mono)]">make backend</kbd>.
           </div>
         </div>
       </div>

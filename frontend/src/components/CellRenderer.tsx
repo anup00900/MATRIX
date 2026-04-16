@@ -2,7 +2,7 @@ import type { Cell } from "../api/types";
 
 export function CellRenderer({ cell }: { cell: Cell }) {
   if (!cell.answer_json)
-    return <span className="text-[--color-muted]">—</span>;
+    return <span className="text-[var(--color-muted)]">—</span>;
   const { value, shape } = cell.answer_json;
   const str = typeof value === "string" ? value : JSON.stringify(value);
   switch (shape) {
@@ -10,7 +10,7 @@ export function CellRenderer({ cell }: { cell: Cell }) {
     case "number":
     case "currency":
       return (
-        <span className="font-[--font-mono] tabular-nums text-right">{str}</span>
+        <span className="font-[var(--font-mono)] tabular-nums text-right">{str}</span>
       );
     case "list": {
       const items = Array.isArray(value) ? (value as unknown[]) : [value];
@@ -18,14 +18,14 @@ export function CellRenderer({ cell }: { cell: Cell }) {
         <span>
           {items.slice(0, 2).map((x) => String(x)).join(" · ")}
           {items.length > 2 && (
-            <span className="text-[--color-muted]"> +{items.length - 2}</span>
+            <span className="text-[var(--color-muted)]"> +{items.length - 2}</span>
           )}
         </span>
       );
     }
     case "table":
       return (
-        <span className="text-[--color-muted]">
+        <span className="text-[var(--color-muted)]">
           table ({(value as unknown[])?.length ?? 0} rows)
         </span>
       );
