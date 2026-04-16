@@ -81,7 +81,7 @@ def set_retriever(grid_id: str, body: SetRetrieverIn, s: Session = Depends(_sess
 
 
 @r.post("/grids/{grid_id}/rows/{document_id}")
-def add_row(grid_id: str, document_id: str, s: Session = Depends(_session)):
+async def add_row(grid_id: str, document_id: str, s: Session = Depends(_session)):
     existing = s.exec(select(Row).where(Row.grid_id == grid_id)).all()
     row = Row(grid_id=grid_id, document_id=document_id, position=len(existing))
     s.add(row); s.commit(); s.refresh(row)
@@ -102,7 +102,7 @@ def add_row(grid_id: str, document_id: str, s: Session = Depends(_session)):
 
 
 @r.post("/grids/{grid_id}/columns")
-def add_column(grid_id: str, body: AddColumnIn, s: Session = Depends(_session)):
+async def add_column(grid_id: str, body: AddColumnIn, s: Session = Depends(_session)):
     existing = s.exec(select(Column).where(Column.grid_id == grid_id)).all()
     col = Column(
         grid_id=grid_id, position=len(existing), prompt=body.prompt,
@@ -145,7 +145,7 @@ def edit_column(column_id: str, body: EditColumnIn, s: Session = Depends(_sessio
 
 
 @r.post("/cells/{cell_id}/rerun")
-def rerun_cell(cell_id: str, s: Session = Depends(_session)):
+async def rerun_cell(cell_id: str, s: Session = Depends(_session)):
     c = s.get(Cell, cell_id)
     if c is None:
         raise HTTPException(404)
