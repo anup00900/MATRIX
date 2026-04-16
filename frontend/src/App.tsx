@@ -54,7 +54,10 @@ export default function App() {
         e.preventDefault();
         setCmdOpen(true);
       }
-      if (e.key === "Escape") setCmdOpen(false);
+      if (e.key === "Escape") {
+        if (cmdOpen) setCmdOpen(false);
+        else if (focused) useGrid.getState().focus(null);
+      }
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
