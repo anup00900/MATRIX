@@ -40,17 +40,25 @@ async def run_cell_job(*, cell_id: str) -> None:
         row = sess.get(Row, cell.row_id); assert row
         grid = sess.get(Grid, cell.grid_id); assert grid
         doc = sess.get(Document, row.document_id); assert doc
+        # snapshot all fields we need after the session closes
+        grid_id = grid.id
+        retriever_mode = grid.retriever_mode
+        document_id = row.document_id
+        prompt = col.prompt
+        shape_hint = col.shape_hint
+        col_version = col.version
         cell.status = "retrieving"
-        cell.column_version = col.version
-        cell.retriever_mode = grid.retriever_mode
+        cell.column_version = col_version
+        cell.retriever_mode = retriever_mode
         sess.add(cell); sess.commit()
 
-    await bus.publish(f"grid:{grid.id}", {
+    channel = f"grid:{grid_id}"
+    await bus.publish(channel, {
         "type": "cell", "cell_id": cell_id, "state": "retrieving",
     })
     try:
-        parsed = _load_doc(row.document_id)
-        retriever = _make_retriever(grid.retriever_mode, parsed)
+        parsed = _load_doc(document_id)
+        retriever = _make_retriever(retriever_mode, parsed)
         wiki = load_wiki(parsed.doc_id)
         section_index = (
             [item.model_dump() for item in wiki.section_index] if wiki
@@ -62,13 +70,13 @@ async def run_cell_job(*, cell_id: str) -> None:
                 c2 = s2.get(Cell, cell_id); assert c2
                 c2.status = state
                 s2.add(c2); s2.commit()
-            await bus.publish(f"grid:{grid.id}", {
+            await bus.publish(channel, {
                 "type": "cell", "cell_id": cell_id, "state": state,
             })
 
         result = await run_cell(
-            prompt=col.prompt, doc=parsed, retriever=retriever,
-            retriever_mode=grid.retriever_mode, shape_hint=col.shape_hint,
+            prompt=prompt, doc=parsed, retriever=retriever,
+            retriever_mode=retriever_mode, shape_hint=shape_hint,
             section_index=section_index, on_state=on_state,
         )
 
@@ -83,10 +91,10 @@ async def run_cell_job(*, cell_id: str) -> None:
             c2.trace_id = result.trace_id
             c2.trace_path = f"traces/{result.trace_id}.json.gz"
             s2.add(c2); s2.commit()
-            published_answer = c2.answer_json
-            published_citations = c2.citations_json
+            published_answer = dict(c2.answer_json) if c2.answer_json else None
+            published_citations = list(c2.citations_json) if c2.citations_json else []
 
-        await bus.publish(f"grid:{grid.id}", {
+        await bus.publish(channel, {
             "type": "cell", "cell_id": cell_id, "state": "done",
             "answer": published_answer, "citations": published_citations,
             "confidence": result.confidence,
@@ -99,7 +107,7 @@ async def run_cell_job(*, cell_id: str) -> None:
                 c2.status = "failed"
                 c2.error = str(e)[:500]
                 s2.add(c2); s2.commit()
-        await bus.publish(f"grid:{grid.id}", {
+        await bus.publish(channel, {
             "type": "cell", "cell_id": cell_id, "state": "failed",
             "error": str(e)[:500],
         })
