@@ -1,8 +1,10 @@
 from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+_ENV = Path(__file__).resolve().parents[2] / ".env"
+
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=str(_ENV), extra="ignore")
 
     azure_openai_api_key: str
     azure_openai_endpoint: str = "https://api.core42.ai/"
