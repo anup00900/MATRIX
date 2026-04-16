@@ -4,14 +4,30 @@ import { useGrid } from "../store/grid";
 import { TEMPLATES } from "../templates";
 
 export function CommandBar({
-  open, onClose, gridId,
-}: { open: boolean; onClose: () => void; gridId: string | null }) {
+  open, onClose, gridId, onOpenFlow,
+}: {
+  open: boolean;
+  onClose: () => void;
+  gridId: string | null;
+  onOpenFlow: () => void;
+}) {
   const refresh = async () => {
     if (!gridId) return;
     const v = await api.getGrid(gridId);
     useGrid.getState().setView(v);
   };
   const wsId = useGrid((s) => s.workspaceId);
+  const focused = useGrid((s) => s.focused);
+  const anyStreamingCellId = useGrid((s) => {
+    if (!s.view) return null;
+    const active = s.view.cells.find((c) =>
+      ["retrieving", "drafting", "verifying"].includes(c.status),
+    );
+    if (active) return active.id;
+    // fallback: most recent "done" cell
+    const done = [...s.view.cells].reverse().find((c) => c.status === "done");
+    return done?.id ?? null;
+  });
   if (!open || !gridId) return null;
 
   return (
@@ -68,6 +84,25 @@ export function CommandBar({
                 }}
               >
                 Add documents…
+              </Command.Item>
+            </Command.Group>
+            <Command.Group heading="Visualization" className="text-[10px] uppercase tracking-wide text-[var(--color-muted)] px-3 py-2">
+              <Command.Item
+                className="px-3 py-2 rounded data-[selected=true]:bg-[var(--color-surface-2)] cursor-pointer text-[13px]"
+                onSelect={() => {
+                  const target = focused ?? anyStreamingCellId;
+                  if (!target) {
+                    alert("No cell to visualize yet. Add a column so a cell starts streaming, then try again.");
+                    return;
+                  }
+                  // bubble target up via window custom event so App picks it,
+                  // but here we use the onOpenFlow callback which reads focused/latest.
+                  useGrid.getState().focus(target);
+                  onOpenFlow();
+                  onClose();
+                }}
+              >
+                Open 3D flow (live pipeline)
               </Command.Item>
             </Command.Group>
             <Command.Group heading="Retriever" className="text-[10px] uppercase tracking-wide text-[var(--color-muted)] px-3 py-2">

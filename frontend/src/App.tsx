@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "./api/client";
 import { CommandBar } from "./components/CommandBar";
+import { FlowOverlay } from "./components/FlowOverlay";
 import { FocusPane } from "./components/FocusPane";
 import { Matrix } from "./components/Matrix";
 import { SynthesisDock } from "./components/SynthesisDock";
@@ -12,6 +13,7 @@ export default function App() {
   const [gridId, setGridId] = useState<string | null>(null);
   const { setView, upsertCell, setWorkspace, focused } = useGrid();
   const [cmdOpen, setCmdOpen] = useState(false);
+  const [flowCellId, setFlowCellId] = useState<string | null>(null);
   const [boot, setBoot] = useState<"idle" | "booting" | "ready" | "error">("idle");
   const [bootErr, setBootErr] = useState<string>("");
 
@@ -45,6 +47,11 @@ export default function App() {
         ...(p.citations !== undefined ? { citations_json: p.citations } : {}),
         ...(p.confidence !== undefined ? { confidence: p.confidence } : {}),
       });
+      // auto follow: if a cell starts streaming and nothing is in the 3D flow yet,
+      // show the freshest active cell so the manager sees the pipeline animate live.
+      if (["retrieving", "drafting", "verifying"].includes(p.state)) {
+        setFlowCellId((cur) => cur ?? p.cell_id);
+      }
     });
     return () => es.close();
   }, [gridId, setView, upsertCell]);
@@ -57,12 +64,13 @@ export default function App() {
       }
       if (e.key === "Escape") {
         if (cmdOpen) setCmdOpen(false);
+        else if (flowCellId) setFlowCellId(null);
         else if (focused) useGrid.getState().focus(null);
       }
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
-  }, []);
+  }, [cmdOpen, flowCellId, focused]);
 
   if (boot === "error") {
     return (
@@ -88,9 +96,19 @@ export default function App() {
           </div>
           <SynthesisDock gridId={gridId} />
         </div>
-        {focused && <FocusPane />}
+        {focused && <FocusPane onOpenFlow={(id) => setFlowCellId(id)} />}
       </div>
-      <CommandBar open={cmdOpen} onClose={() => setCmdOpen(false)} gridId={gridId} />
+      <CommandBar
+        open={cmdOpen}
+        onClose={() => setCmdOpen(false)}
+        gridId={gridId}
+        onOpenFlow={() => {
+          // read fresh focus from the store (CommandBar may have just set it)
+          const liveFocus = useGrid.getState().focused;
+          setFlowCellId(liveFocus ?? flowCellId);
+        }}
+      />
+      {flowCellId && <FlowOverlay cellId={flowCellId} onClose={() => setFlowCellId(null)} />}
     </div>
   );
 }

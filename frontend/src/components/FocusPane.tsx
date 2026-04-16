@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { X, RotateCw, ChevronDown, ChevronRight } from "lucide-react";
+import { X, RotateCw, ChevronDown, ChevronRight, Sparkles } from "lucide-react";
 import { api } from "../api/client";
 import type { Citation } from "../api/types";
 import { cn } from "../lib/utils";
@@ -9,7 +9,11 @@ import { PdfView } from "./PdfView";
 
 const CONFIDENCE_DOTS: Record<string, number> = { high: 3, medium: 2, low: 1 };
 
-export function FocusPane() {
+interface FocusPaneProps {
+  onOpenFlow?: (cellId: string) => void;
+}
+
+export function FocusPane({ onOpenFlow }: FocusPaneProps = {}) {
   const { view, focused, focus, upsertCell } = useGrid();
   const [activeCite, setActiveCite] = useState(0);
   const [traceOpen, setTraceOpen] = useState(false);
@@ -46,6 +50,17 @@ export function FocusPane() {
           <span className="text-[var(--color-text)]">{cell.id.slice(-10)}</span>
         </div>
         <div className="flex gap-1">
+          {onOpenFlow && (
+            <button
+              onClick={() => onOpenFlow(cell.id)}
+              className="px-2 py-1 text-[11px] border border-[var(--color-accent-streaming)] rounded
+                         text-[var(--color-accent-streaming)] hover:bg-[var(--color-accent-streaming)]/10
+                         transition flex items-center gap-1"
+              title="Open 3D flow (live pipeline)"
+            >
+              <Sparkles className="w-3 h-3" /> 3D
+            </button>
+          )}
           <button
             onClick={async () => {
               await api.rerunCell(cell.id);
