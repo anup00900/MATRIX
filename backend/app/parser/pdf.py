@@ -98,15 +98,29 @@ def _chunk_text(section_id: str | None, page: int, text: str,
         i += target_tokens - overlap
     return out
 
-async def parse_pdf(path: Path) -> StructuredDoc:
+async def parse_pdf(
+    path: Path,
+    *,
+    on_page_done=None,  # async callable (page_no, total) -> None, optional progress hook
+) -> StructuredDoc:
     """Vision-based PDF parser. Renders each page, sends to gpt-4.1 vision,
-    receives markdown, then stitches into a StructuredDoc."""
+    receives markdown, then stitches into a StructuredDoc.
+
+    If on_page_done is provided it's awaited after every page-level vision call
+    so callers can surface progress events to the UI.
+    """
     doc_id = _sha256(path)
     mu = fitz.open(path)
+    total = len(mu)
     sem = asyncio.Semaphore(PAGE_CONCURRENCY)
     async def guarded(pg, idx):
-        async with sem: return await _extract_page_markdown(pg, idx)
-    pages = await asyncio.gather(*(guarded(mu[i], i + 1) for i in range(len(mu))))
+        async with sem:
+            p = await _extract_page_markdown(pg, idx)
+            if on_page_done is not None:
+                try: await on_page_done(idx, total)
+                except Exception: pass
+            return p
+    pages = await asyncio.gather(*(guarded(mu[i], i + 1) for i in range(total)))
 
     sections = _detect_sections(pages)
     section_by_page: dict[int, str] = {}

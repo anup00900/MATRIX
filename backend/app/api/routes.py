@@ -196,6 +196,27 @@ def get_pdf(document_id: str, s: Session = Depends(_session)):
     return FileResponse(p, media_type="application/pdf")
 
 
+@r.get("/workspaces/{ws_id}/stream")
+async def workspace_stream(ws_id: str, request: Request):
+    q = bus.subscribe(f"workspace:{ws_id}")
+
+    async def gen():
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    evt = await asyncio.wait_for(q.get(), timeout=15.0)
+                except asyncio.TimeoutError:
+                    yield {"event": "ping", "data": "{}"}
+                    continue
+                yield {"id": str(evt["id"]), "event": "document", "data": json.dumps(evt)}
+        finally:
+            bus.unsubscribe(f"workspace:{ws_id}", q)
+
+    return EventSourceResponse(gen())
+
+
 @r.get("/grids/{grid_id}/stream")
 async def stream(grid_id: str, request: Request):
     q = bus.subscribe(f"grid:{grid_id}")

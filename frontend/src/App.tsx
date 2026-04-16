@@ -4,6 +4,8 @@ import { AskBar } from "./components/AskBar";
 import { CommandBar } from "./components/CommandBar";
 import { FlowOverlay } from "./components/FlowOverlay";
 import { FocusPane } from "./components/FocusPane";
+import { IngestFlowOverlay } from "./components/IngestFlowOverlay";
+import { IngestProgress } from "./components/IngestProgress";
 import { Matrix } from "./components/Matrix";
 import { SynthesisDock } from "./components/SynthesisDock";
 import { TopBar } from "./components/TopBar";
@@ -12,9 +14,11 @@ import "./index.css";
 
 export default function App() {
   const [gridId, setGridId] = useState<string | null>(null);
-  const { setView, upsertCell, setWorkspace, focused } = useGrid();
+  const { setView, upsertCell, setWorkspace, focused, upsertIngest } = useGrid();
+  const workspaceId = useGrid((s) => s.workspaceId);
   const [cmdOpen, setCmdOpen] = useState(false);
   const [flowCellId, setFlowCellId] = useState<string | null>(null);
+  const [ingestFlowDocId, setIngestFlowDocId] = useState<string | null>(null);
   const [boot, setBoot] = useState<"idle" | "booting" | "ready" | "error">("idle");
   const [bootErr, setBootErr] = useState<string>("");
 
@@ -35,6 +39,28 @@ export default function App() {
     })();
   }, [boot, setWorkspace]);
 
+  // workspace SSE: ingest progress
+  useEffect(() => {
+    if (!workspaceId) return;
+    const url = `http://127.0.0.1:8000/api/workspaces/${workspaceId}/stream`;
+    const es = new EventSource(url);
+    es.addEventListener("document", (ev: MessageEvent) => {
+      const p = JSON.parse(ev.data);
+      upsertIngest({
+        document_id: p.document_id,
+        filename: p.filename,
+        sha: p.sha,
+        stage: p.stage,
+        page: p.page,
+        of: p.of,
+        n_pages: p.n_pages,
+        sections: p.sections,
+        error: p.error,
+      });
+    });
+    return () => es.close();
+  }, [workspaceId, upsertIngest]);
+
   useEffect(() => {
     if (!gridId) return;
     (async () => setView(await api.getGrid(gridId)))();
@@ -48,8 +74,6 @@ export default function App() {
         ...(p.citations !== undefined ? { citations_json: p.citations } : {}),
         ...(p.confidence !== undefined ? { confidence: p.confidence } : {}),
       });
-      // auto follow: if a cell starts streaming and nothing is in the 3D flow yet,
-      // show the freshest active cell so the manager sees the pipeline animate live.
       if (["retrieving", "drafting", "verifying"].includes(p.state)) {
         setFlowCellId((cur) => cur ?? p.cell_id);
       }
@@ -65,13 +89,14 @@ export default function App() {
       }
       if (e.key === "Escape") {
         if (cmdOpen) setCmdOpen(false);
+        else if (ingestFlowDocId) setIngestFlowDocId(null);
         else if (flowCellId) setFlowCellId(null);
         else if (focused) useGrid.getState().focus(null);
       }
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
-  }, [cmdOpen, flowCellId, focused]);
+  }, [cmdOpen, flowCellId, focused, ingestFlowDocId]);
 
   if (boot === "error") {
     return (
@@ -91,6 +116,7 @@ export default function App() {
     <div className="h-full flex flex-col">
       <TopBar onCommand={() => setCmdOpen(true)} />
       <AskBar gridId={gridId} />
+      <IngestProgress onOpen3D={(id) => setIngestFlowDocId(id)} />
       <div className="flex-1 flex min-h-0">
         <div className="flex-1 flex flex-col min-w-0">
           <div className="flex-1 min-h-0 overflow-auto">
@@ -105,12 +131,12 @@ export default function App() {
         onClose={() => setCmdOpen(false)}
         gridId={gridId}
         onOpenFlow={() => {
-          // read fresh focus from the store (CommandBar may have just set it)
           const liveFocus = useGrid.getState().focused;
           setFlowCellId(liveFocus ?? flowCellId);
         }}
       />
       {flowCellId && <FlowOverlay cellId={flowCellId} onClose={() => setFlowCellId(null)} />}
+      {ingestFlowDocId && <IngestFlowOverlay documentId={ingestFlowDocId} onClose={() => setIngestFlowDocId(null)} />}
     </div>
   );
 }
