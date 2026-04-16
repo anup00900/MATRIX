@@ -63,7 +63,8 @@ def _detect_sections(pages: list[Page]) -> list[Section]:
                 if cur_title is not None:
                     sections.append(Section(
                         id=str(ULID()), title=cur_title, level=2,
-                        page_start=cur_start, page_end=p.page_no,
+                        page_start=cur_start,
+                        page_end=max(cur_start, p.page_no - 1),
                         text="\n".join(cur_text),
                     ))
                 cur_title = heading_text
@@ -111,7 +112,7 @@ async def parse_pdf(path: Path) -> StructuredDoc:
     section_by_page: dict[int, str] = {}
     for s in sections:
         for pn in range(s.page_start, s.page_end + 1):
-            section_by_page.setdefault(pn, s.id)
+            section_by_page[pn] = s.id   # last-wins: later sections override earlier on boundary pages
 
     chunks: list[Chunk] = []
     for p in pages:
