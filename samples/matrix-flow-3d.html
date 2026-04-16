@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Matrix · ISD Pipeline · 3D Flow</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root {
+    --canvas: #09090b;
+    --surface: #18181b;
+    --border: #27272a;
+    --muted: #a1a1aa;
+    --text: #fafafa;
+    --done: #10b981;
+    --streaming: #38bdf8;
+    --verify: #f59e0b;
+    --fail: #f43f5e;
+    --wiki: #a78bfa;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%; background: var(--canvas); color: var(--text);
+    font-family: "Inter Tight", "Inter", system-ui, -apple-system, sans-serif;
+    overflow: hidden;
+  }
+  #scene { position: fixed; inset: 0; }
+  .topbar {
+    position: fixed; top: 0; left: 0; right: 0; height: 52px;
+    padding: 0 20px; display: flex; align-items: center; gap: 16px;
+    border-bottom: 1px solid var(--border); background: rgba(9,9,11,0.7);
+    backdrop-filter: blur(12px); z-index: 10;
+  }
+  .topbar .brand { font-weight: 600; letter-spacing: -0.01em; }
+  .topbar .subtitle { color: var(--muted); font-size: 12px; }
+  .topbar .spacer { flex: 1; }
+  .pill {
+    padding: 3px 10px; border: 1px solid var(--border); border-radius: 999px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em;
+    color: var(--muted);
+  }
+  .legend {
+    position: fixed; left: 20px; bottom: 20px; padding: 14px 16px;
+    background: rgba(24,24,27,0.75); backdrop-filter: blur(12px);
+    border: 1px solid var(--border); border-radius: 12px;
+    font-size: 12px; max-width: 320px; line-height: 1.55;
+    z-index: 10;
+  }
+  .legend h3 {
+    margin: 0 0 8px; font-size: 11px; text-transform: uppercase;
+    letter-spacing: 0.08em; color: var(--muted); font-weight: 500;
+  }
+  .legend .row { display: flex; gap: 8px; align-items: center; margin-top: 4px; }
+  .legend .dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+  .panel {
+    position: fixed; right: 20px; top: 72px; width: 340px;
+    padding: 16px 18px; background: rgba(24,24,27,0.85);
+    backdrop-filter: blur(14px);
+    border: 1px solid var(--border); border-radius: 12px;
+    font-size: 13px; line-height: 1.55;
+    transform: translateX(120%); transition: transform 200ms ease;
+    z-index: 10; max-height: calc(100vh - 120px); overflow-y: auto;
+  }
+  .panel.open { transform: translateX(0); }
+  .panel h2 {
+    margin: 0 0 4px; font-size: 16px; letter-spacing: -0.01em;
+  }
+  .panel .tag {
+    display: inline-block; padding: 2px 8px; border-radius: 4px;
+    background: var(--surface); border: 1px solid var(--border);
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 10px; text-transform: uppercase; color: var(--muted);
+    margin-bottom: 10px;
+  }
+  .panel .close {
+    position: absolute; top: 12px; right: 12px; cursor: pointer;
+    color: var(--muted); background: none; border: 0; font-size: 16px;
+  }
+  .panel pre {
+    background: var(--canvas); border: 1px solid var(--border);
+    padding: 10px; border-radius: 8px; font-size: 11px; line-height: 1.5;
+    overflow-x: auto;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    white-space: pre-wrap;
+  }
+  .panel .meta {
+    color: var(--muted); font-size: 11px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    margin-top: 8px;
+  }
+  .hint {
+    position: fixed; right: 20px; bottom: 20px; color: var(--muted);
+    font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace;
+    z-index: 5; text-align: right; line-height: 1.6;
+    background: rgba(24,24,27,0.75); backdrop-filter: blur(12px);
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 12px;
+  }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="brand">◇ Matrix</div>
+  <div class="subtitle">ISD pipeline · 3D flow</div>
+  <div class="spacer"></div>
+  <div class="pill">gpt 4.1</div>
+  <div class="pill" style="color: var(--streaming); border-color: var(--streaming);">live</div>
+</div>
+
+<div id="scene"></div>
+
+<div class="legend">
+  <h3>Pipeline</h3>
+  <div class="row"><span class="dot" style="background: var(--streaming);"></span> Decompose → sub queries + target sections</div>
+  <div class="row"><span class="dot" style="background: var(--streaming);"></span> Retrieve → evidence chunks</div>
+  <div class="row"><span class="dot" style="background: var(--streaming);"></span> Draft → answer with cited chunk ids</div>
+  <div class="row"><span class="dot" style="background: var(--verify);"></span> Verify → claim by claim check</div>
+  <div class="row"><span class="dot" style="background: var(--done);"></span> Done → answer + citations streamed to UI</div>
+  <h3 style="margin-top: 14px;">Retriever</h3>
+  <div class="row"><span class="dot" style="background: var(--muted);"></span> Naive · vector top k</div>
+  <div class="row"><span class="dot" style="background: var(--verify);"></span> ISD · decompose + attention rerank</div>
+  <div class="row"><span class="dot" style="background: var(--wiki);"></span> Wiki · metric / claim first</div>
+</div>
+
+<div class="hint">
+  drag to orbit · scroll to zoom<br/>
+  click any node to inspect
+</div>
+
+<div class="panel" id="panel">
+  <button class="close" onclick="document.getElementById('panel').classList.remove('open')">×</button>
+  <h2 id="panel-title">Node</h2>
+  <div class="tag" id="panel-tag">stage</div>
+  <div id="panel-body"></div>
+  <div class="meta" id="panel-meta"></div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0x09090b, 20, 80);
+
+const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 200);
+camera.position.set(12, 10, 22);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setClearColor(0x09090b, 1);
+document.getElementById('scene').appendChild(renderer.domElement);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.target.set(0, 1, 0);
+
+// Lights
+scene.add(new THREE.AmbientLight(0xffffff, 0.35));
+const key = new THREE.PointLight(0x38bdf8, 1.0, 60, 2);
+key.position.set(10, 12, 8);
+scene.add(key);
+const fill = new THREE.PointLight(0xa78bfa, 0.6, 50, 2);
+fill.position.set(-10, 8, -6);
+scene.add(fill);
+const rim = new THREE.PointLight(0x10b981, 0.5, 40, 2);
+rim.position.set(0, -6, 10);
+scene.add(rim);
+
+// Grid floor
+const grid = new THREE.GridHelper(60, 30, 0x27272a, 0x18181b);
+grid.position.y = -2;
+scene.add(grid);
+
+// Text sprite helper
+function makeLabel(text, size = 1.4, color = '#fafafa', sub = '') {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512; canvas.height = 160;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = color;
+  ctx.font = '600 56px "Inter Tight", Inter, system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, 256, sub ? 58 : 80);
+  if (sub) {
+    ctx.fillStyle = '#a1a1aa';
+    ctx.font = '400 26px "JetBrains Mono", monospace';
+    ctx.fillText(sub, 256, 118);
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.anisotropy = 8;
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
+  const sp = new THREE.Sprite(mat);
+  sp.scale.set(size * 3.2, size, 1);
+  return sp;
+}
+
+// Stage nodes arranged in a forward flow, with loop back for revise
+const stages = [
+  { id: 'prompt',    label: 'User Prompt',  sub: 'column.prompt',              pos: [-10, 3,  0], color: 0xffffff, size: 1.6,
+    detail: {
+      tag: 'input',
+      body: `The user types a column prompt in the matrix grid, for example: "What was revenue for fiscal 2023?".<br/><br/>FastAPI creates a Cell row with status <code>queued</code> and kicks off run_cell_job as a background task. Event bus emits the first SSE event so the UI paints the queued dot.`,
+      meta: 'POST /api/grids/{id}/columns  →  asyncio.create_task(run_cell_job)',
+    }},
+  { id: 'decompose', label: 'Decompose',    sub: 'LLM call · 1',               pos: [ -5, 3,  4], color: 0x38bdf8,
+    detail: {
+      tag: 'stage · llm call 1',
+      body: `gpt 4.1 receives the prompt + doc metadata + the section index of the document. It returns structured JSON with:<br/><br/>• <b>sub_questions</b> · 2 to 4 retrieval queries<br/>• <b>target_section_ids</b> · up to 5 section ids likely to contain the answer<br/>• <b>expected_answer_shape</b> · text / number / currency / percentage / list / table`,
+      meta: 'llm.structured(schema=DecompositionPlan)',
+    }},
+  { id: 'retrieve',  label: 'Retrieve',     sub: 'naive · isd · wiki',          pos: [  0, 3,  6], color: 0xa78bfa,
+    detail: {
+      tag: 'stage · retrieval',
+      body: `Runs the current retriever mode over each sub question. Three modes behind the same interface:<br/><br/>• <b>Naive</b> · embed query, LanceDB top k<br/>• <b>ISD</b> · embedding gather per sub query, target section boost, then one batched attention rerank LLM call scores every candidate 0 to 1<br/>• <b>Wiki</b> · token overlap against pre extracted metrics and claims; falls back to vector when wiki is empty`,
+      meta: 'Retriever.retrieve(sub_q, doc, k=6)  →  list[Evidence]',
+    }},
+  { id: 'draft',     label: 'Draft',        sub: 'LLM call · 2',               pos: [  5, 3,  4], color: 0x38bdf8,
+    detail: {
+      tag: 'stage · llm call 2',
+      body: `gpt 4.1 answers the prompt using only the evidence block. The model is forced to cite at least one chunk id per factual claim and to emit a reasoning_trace array.<br/><br/>Returns {answer, citations: [chunk_ids], reasoning_trace: [strings]}.`,
+      meta: 'llm.structured(schema=DraftAnswer)',
+    }},
+  { id: 'verify',    label: 'Verify',       sub: 'LLM call · per claim',       pos: [ 10, 3,  0], color: 0xf59e0b,
+    detail: {
+      tag: 'stage · verification',
+      body: `For each claim in the reasoning_trace, the retriever pulls fresh evidence for that exact claim and a small LLM call returns supported / contradicted / missing.<br/><br/>If any claim is contradicted or missing, the pipeline revises once, then verifies again. After two unsupported passes confidence drops to low and the trace flags the bad claim.`,
+      meta: 'llm.structured(schema=VerifierOut)  per claim',
+    }},
+  { id: 'done',      label: 'Done',         sub: 'SSE → UI',                    pos: [  5, 3, -4], color: 0x10b981,
+    detail: {
+      tag: 'output',
+      body: `Cell row updated: status=done, answer_json, citations_json, confidence, tokens_used, latency_ms, trace_id.<br/><br/>Event bus publishes a done event over SSE with the answer + citations. The frontend Zustand store merges the event and the cell dot turns green.<br/><br/>Full trace (plan, evidence, draft, verifier notes, revisions) is persisted as storage/traces/{trace_id}.json.gz.`,
+      meta: 'await bus.publish(grid:{id}, {answer, citations, confidence})',
+    }},
+];
+
+// Edges: forward flow + a loop from verify back to draft (revise path)
+const edges = [
+  ['prompt', 'decompose', 'streaming'],
+  ['decompose', 'retrieve', 'streaming'],
+  ['retrieve', 'draft', 'streaming'],
+  ['draft', 'verify', 'verify'],
+  ['verify', 'done', 'done'],
+  ['verify', 'draft', 'revise'],   // loopback
+];
+
+const EDGE_COLORS = {
+  streaming: 0x38bdf8,
+  verify: 0xf59e0b,
+  done: 0x10b981,
+  revise: 0xf43f5e,
+};
+
+const nodeMeshes = new Map();
+const nodeGroup = new THREE.Group();
+scene.add(nodeGroup);
+
+for (const s of stages) {
+  const g = new THREE.Group();
+  g.position.set(...s.pos);
+
+  // outer glow
+  const glowMat = new THREE.MeshBasicMaterial({
+    color: s.color, transparent: true, opacity: 0.16, side: THREE.BackSide,
+  });
+  const glow = new THREE.Mesh(new THREE.SphereGeometry(1.6, 32, 32), glowMat);
+  g.add(glow);
+
+  // core
+  const core = new THREE.Mesh(
+    new THREE.IcosahedronGeometry(0.9, 1),
+    new THREE.MeshStandardMaterial({
+      color: s.color, emissive: s.color, emissiveIntensity: 0.4,
+      metalness: 0.3, roughness: 0.3,
+    }),
+  );
+  g.add(core);
+
+  const label = makeLabel(s.label, 1.0, '#fafafa', s.sub);
+  label.position.set(0, 1.9, 0);
+  g.add(label);
+
+  g.userData = { stage: s, core, glow };
+  nodeGroup.add(g);
+  nodeMeshes.set(s.id, g);
+}
+
+// Edges with tube geometry + animated particles
+const edgeObjects = [];
+for (const [from, to, kind] of edges) {
+  const a = nodeMeshes.get(from).position;
+  const b = nodeMeshes.get(to).position;
+  const isLoop = from === 'verify' && to === 'draft';
+
+  // curve control: for loopback, arc UP over the top
+  const mid = new THREE.Vector3().addVectors(a, b).multiplyScalar(0.5);
+  if (isLoop) mid.y += 5;
+  else mid.y += 1;
+  const curve = new THREE.QuadraticBezierCurve3(a.clone(), mid, b.clone());
+
+  const tubeGeom = new THREE.TubeGeometry(curve, 64, isLoop ? 0.04 : 0.06, 8, false);
+  const tubeMat = new THREE.MeshBasicMaterial({
+    color: EDGE_COLORS[kind], transparent: true, opacity: isLoop ? 0.35 : 0.55,
+  });
+  const tube = new THREE.Mesh(tubeGeom, tubeMat);
+  scene.add(tube);
+
+  // particle along curve
+  const particleCount = isLoop ? 2 : 4;
+  const particles = [];
+  for (let i = 0; i < particleCount; i++) {
+    const m = new THREE.Mesh(
+      new THREE.SphereGeometry(0.08, 12, 12),
+      new THREE.MeshBasicMaterial({ color: EDGE_COLORS[kind] }),
+    );
+    scene.add(m);
+    particles.push({ mesh: m, t: i / particleCount, speed: isLoop ? 0.12 : 0.2 });
+  }
+  edgeObjects.push({ curve, particles, isLoop });
+}
+
+// PDF pages "stack" on the side to represent cited source pages
+const pdfGroup = new THREE.Group();
+pdfGroup.position.set(0, 3, 14);
+for (let i = 0; i < 10; i++) {
+  const page = new THREE.Mesh(
+    new THREE.BoxGeometry(3, 4, 0.08),
+    new THREE.MeshStandardMaterial({
+      color: 0xfafafa, metalness: 0.1, roughness: 0.7,
+      transparent: true, opacity: 0.9,
+    }),
+  );
+  page.position.set((i - 4.5) * 0.35, 0, i * 0.02);
+  page.rotation.y = -0.15;
+  page.userData.pageNo = i + 1;
+  pdfGroup.add(page);
+}
+scene.add(pdfGroup);
+
+// Citation beams from retrieve node to PDF pages
+const retrieveNode = nodeMeshes.get('retrieve');
+const citationBeams = [];
+for (let i = 0; i < 4; i++) {
+  const page = pdfGroup.children[Math.floor(Math.random() * pdfGroup.children.length)];
+  const start = retrieveNode.position;
+  const end = new THREE.Vector3();
+  page.getWorldPosition(end);
+  const geom = new THREE.BufferGeometry().setFromPoints([start, end]);
+  const line = new THREE.Line(geom, new THREE.LineBasicMaterial({
+    color: 0xa78bfa, transparent: true, opacity: 0.25,
+  }));
+  scene.add(line);
+  citationBeams.push({ line, page });
+}
+
+// Stars bg
+const starsGeo = new THREE.BufferGeometry();
+const starsN = 400;
+const starsPos = new Float32Array(starsN * 3);
+for (let i = 0; i < starsN; i++) {
+  starsPos[i * 3 + 0] = (Math.random() - 0.5) * 120;
+  starsPos[i * 3 + 1] = (Math.random() - 0.5) * 60;
+  starsPos[i * 3 + 2] = (Math.random() - 0.5) * 120;
+}
+starsGeo.setAttribute('position', new THREE.BufferAttribute(starsPos, 3));
+scene.add(new THREE.Points(starsGeo, new THREE.PointsMaterial({
+  color: 0x71717a, size: 0.08, transparent: true, opacity: 0.6,
+})));
+
+// Raycaster for clicks
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+const panel = document.getElementById('panel');
+const pTitle = document.getElementById('panel-title');
+const pTag = document.getElementById('panel-tag');
+const pBody = document.getElementById('panel-body');
+const pMeta = document.getElementById('panel-meta');
+
+renderer.domElement.addEventListener('pointerdown', (e) => {
+  mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+  mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+  raycaster.setFromCamera(mouse, camera);
+  const hits = raycaster.intersectObjects(nodeGroup.children, true);
+  if (hits.length) {
+    let obj = hits[0].object;
+    while (obj && !obj.userData?.stage) obj = obj.parent;
+    if (obj) {
+      const s = obj.userData.stage;
+      pTitle.textContent = s.label;
+      pTag.textContent = s.detail.tag;
+      pBody.innerHTML = s.detail.body;
+      pMeta.textContent = s.detail.meta;
+      panel.classList.add('open');
+    }
+  }
+});
+
+// Resize
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// Animate
+const clock = new THREE.Clock();
+function animate() {
+  requestAnimationFrame(animate);
+  const t = clock.getElapsedTime();
+
+  // Breathe the stage cores
+  for (const [id, node] of nodeMeshes) {
+    const core = node.userData.core;
+    const scale = 1 + Math.sin(t * 2 + node.position.x * 0.3) * 0.04;
+    core.scale.setScalar(scale);
+    core.rotation.y = t * 0.3;
+    core.rotation.x = t * 0.2;
+  }
+
+  // Animate particles along edges
+  const dt = clock.getDelta();
+  for (const edge of edgeObjects) {
+    for (const p of edge.particles) {
+      p.t += p.speed * dt;
+      if (p.t > 1) p.t = 0;
+      const pos = edge.curve.getPoint(p.t);
+      p.mesh.position.copy(pos);
+    }
+  }
+
+  // Slow rotation of PDF stack
+  pdfGroup.rotation.y = Math.sin(t * 0.2) * 0.1;
+
+  // Pulse citation beams
+  for (const cb of citationBeams) {
+    cb.line.material.opacity = 0.15 + 0.25 * (Math.sin(t * 2 + cb.page.position.x) * 0.5 + 0.5);
+  }
+
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+</script>
+</body>
+</html>
