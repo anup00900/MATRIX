@@ -10,8 +10,10 @@ from ..storage.models import Workspace, Document, Grid, Column, Row, Cell
 from ..services.ingest import ingest_pdf
 from ..services.cells import run_cell_job
 from ..services.events import bus
+from ..services.synthesize import synthesize
 from .schemas import (
     CreateWorkspaceIn, CreateGridIn, AddColumnIn, EditColumnIn, SetRetrieverIn,
+    SynthesizeIn,
 )
 
 r = APIRouter(prefix="/api")
@@ -152,6 +154,12 @@ def rerun_cell(cell_id: str, s: Session = Depends(_session)):
     s.add(c); s.commit()
     asyncio.create_task(run_cell_job(cell_id=cell_id))
     return {"ok": True}
+
+
+@r.post("/grids/{grid_id}/synthesize")
+async def synthesize_ep(grid_id: str, body: SynthesizeIn):
+    syn = await synthesize(grid_id, body.prompt)
+    return syn
 
 
 @r.get("/pdf/{document_id}")
