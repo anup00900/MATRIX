@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "./api/client";
+import { AskBar } from "./components/AskBar";
 import { CommandBar } from "./components/CommandBar";
 import { FlowOverlay } from "./components/FlowOverlay";
 import { FocusPane } from "./components/FocusPane";
@@ -89,6 +90,7 @@ export default function App() {
   return (
     <div className="h-full flex flex-col">
       <TopBar onCommand={() => setCmdOpen(true)} />
+      <AskBar gridId={gridId} />
       <div className="flex-1 flex min-h-0">
         <div className="flex-1 flex flex-col min-w-0">
           <div className="flex-1 min-h-0 overflow-auto">

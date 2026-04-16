@@ -29,3 +29,7 @@ class SynthesizeIn(BaseModel):
     prompt: str
     row_ids: list[str] | None = None
     column_ids: list[str] | None = None
+
+
+class SuggestIn(BaseModel):
+    prompt: str

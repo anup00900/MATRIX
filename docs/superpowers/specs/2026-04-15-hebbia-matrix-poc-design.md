@@ -1,7 +1,7 @@
 # Hebbia Matrix PoC — Design Spec
 
 **Date:** 2026-04-15
-**Author:** Anup Roy (with Jitendra Jangid)
+**Author:** Anup Roy 
 **Status:** Draft for review
 **Target:** Working PoC of a Hebbia-Matrix-style spreadsheet-on-documents UI over FinanceBench 10-K / earnings PDFs, with a swappable retrieval core (Naive / ISD / per-doc Wiki) and a reproducible benchmark harness.
 

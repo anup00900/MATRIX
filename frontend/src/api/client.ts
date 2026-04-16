@@ -70,6 +70,16 @@ export const api = {
       ok: boolean;
     }>,
 
+  suggestColumns: (gridId: string, prompt: string) =>
+    fetch(`${BASE}/grids/${gridId}/suggest-columns`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ prompt }),
+    }).then(j) as Promise<{ columns: Array<{ prompt: string; shape_hint: string }> }>,
+
+  exportCsvUrl: (gridId: string) => `${BASE}/grids/${gridId}/export.csv`,
+  exportJsonUrl: (gridId: string) => `${BASE}/grids/${gridId}/export.json`,
+
   streamUrl: (gridId: string) => `${BASE}/grids/${gridId}/stream`,
 
   pdfUrl: (documentId: string) => `${BASE}/pdf/${documentId}`,

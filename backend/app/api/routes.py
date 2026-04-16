@@ -11,10 +11,13 @@ from ..services.ingest import ingest_pdf
 from ..services.cells import run_cell_job
 from ..services.events import bus
 from ..services.synthesize import synthesize
+from ..services.suggest import suggest_columns
+from ..services.export import export_csv, export_json
 from .schemas import (
     CreateWorkspaceIn, CreateGridIn, AddColumnIn, EditColumnIn, SetRetrieverIn,
-    SynthesizeIn,
+    SynthesizeIn, SuggestIn,
 )
+from fastapi.responses import Response, JSONResponse
 
 r = APIRouter(prefix="/api")
 
@@ -160,6 +163,26 @@ async def rerun_cell(cell_id: str, s: Session = Depends(_session)):
 async def synthesize_ep(grid_id: str, body: SynthesizeIn):
     syn = await synthesize(grid_id, body.prompt)
     return syn
+
+
+@r.post("/grids/{grid_id}/suggest-columns")
+async def suggest_columns_ep(grid_id: str, body: SuggestIn):
+    cols = await suggest_columns(body.prompt)
+    return {"columns": [c.model_dump() for c in cols]}
+
+
+@r.get("/grids/{grid_id}/export.csv")
+def export_csv_ep(grid_id: str):
+    text = export_csv(grid_id)
+    return Response(
+        content=text, media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="grid_{grid_id[:8]}.csv"'},
+    )
+
+
+@r.get("/grids/{grid_id}/export.json")
+def export_json_ep(grid_id: str):
+    return JSONResponse(export_json(grid_id))
 
 
 @r.get("/pdf/{document_id}")

@@ -95,14 +95,30 @@ export function CommandBar({
                     alert("No cell to visualize yet. Add a column so a cell starts streaming, then try again.");
                     return;
                   }
-                  // bubble target up via window custom event so App picks it,
-                  // but here we use the onOpenFlow callback which reads focused/latest.
                   useGrid.getState().focus(target);
                   onOpenFlow();
                   onClose();
                 }}
               >
                 Open 3D flow (live pipeline)
+              </Command.Item>
+              <Command.Item
+                className="px-3 py-2 rounded data-[selected=true]:bg-[var(--color-surface-2)] cursor-pointer text-[13px]"
+                onSelect={() => {
+                  window.open(api.exportCsvUrl(gridId), "_blank");
+                  onClose();
+                }}
+              >
+                Export grid as CSV
+              </Command.Item>
+              <Command.Item
+                className="px-3 py-2 rounded data-[selected=true]:bg-[var(--color-surface-2)] cursor-pointer text-[13px]"
+                onSelect={() => {
+                  window.open(api.exportJsonUrl(gridId), "_blank");
+                  onClose();
+                }}
+              >
+                Export grid as JSON
               </Command.Item>
             </Command.Group>
             <Command.Group heading="Retriever" className="text-[10px] uppercase tracking-wide text-[var(--color-muted)] px-3 py-2">
