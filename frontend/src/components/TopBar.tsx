@@ -11,20 +11,18 @@ export function TopBar({ onCommand }: { onCommand: () => void }) {
     mode === "isd" ? "text-[var(--color-accent-verify)]" :
     "text-[var(--color-muted)]";
 
-  // count cells in each state so the audience sees work in flight
-  const activity = useGrid((s) => {
-    const out = { retrieving: 0, drafting: 0, verifying: 0, done: 0, failed: 0, total: 0 };
-    if (!s.view) return out;
-    for (const c of s.view.cells) {
-      out.total += 1;
-      if (c.status === "retrieving") out.retrieving += 1;
-      else if (c.status === "drafting") out.drafting += 1;
-      else if (c.status === "verifying") out.verifying += 1;
-      else if (c.status === "done") out.done += 1;
-      else if (c.status === "failed") out.failed += 1;
-    }
-    return out;
-  });
+  // select a stable reference, compute derived counts in render (don't return
+  // a new object from the selector — that triggers an infinite Zustand loop).
+  const cells = useGrid((s) => s.view?.cells);
+  const activity = { retrieving: 0, drafting: 0, verifying: 0, done: 0, failed: 0, total: 0 };
+  for (const c of cells ?? []) {
+    activity.total += 1;
+    if (c.status === "retrieving") activity.retrieving += 1;
+    else if (c.status === "drafting") activity.drafting += 1;
+    else if (c.status === "verifying") activity.verifying += 1;
+    else if (c.status === "done") activity.done += 1;
+    else if (c.status === "failed") activity.failed += 1;
+  }
   const busy = activity.retrieving + activity.drafting + activity.verifying;
 
   return (
