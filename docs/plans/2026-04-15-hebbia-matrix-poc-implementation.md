@@ -1,6 +1,6 @@
 # Hebbia Matrix PoC — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> Steps use checkbox (`- [ ]`) syntax for tracking progress.
 
 **Goal:** Build a working Hebbia-Matrix-style spreadsheet over PDFs: drop 10-Ks, define prompt columns, watch cells stream in with cited answers, synthesise across rows; with three swappable retrievers (Naive / ISD / Wiki) benchmarked against FinanceBench.
 
@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.11 · FastAPI · SQLModel · LanceDB · PyMuPDF · pdfplumber · pytesseract · structlog · React 18 · Vite · TypeScript · TanStack Table · TailwindCSS · shadcn/ui · Zustand · PDF.js · cmdk · Framer Motion · Azure OpenAI · FinanceBench.
 
-**Spec:** `docs/superpowers/specs/2026-04-15-hebbia-matrix-poc-design.md`
+**Spec:** `docs/specs/2026-04-15-hebbia-matrix-poc-design.md`
 
 ---
 

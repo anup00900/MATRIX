@@ -1,6 +1,7 @@
 .env
 .env.local
 /storage/
+backend/storage/
 backend/.venv/
 backend/__pycache__/
 backend/**/__pycache__/
@@ -14,3 +15,4 @@ backend/*.egg-info/
 backend/**/*.egg-info/
 __pycache__/
 *.pyc
+.claude/

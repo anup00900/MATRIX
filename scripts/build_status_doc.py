@@ -162,8 +162,8 @@ bullet("Cost guardrail. Add a token budget preview before large column fan outs.
 
 # === Footer ===
 p(" ")
-p("Repo: /Users/anup.roy/Downloads/Hebbia POC  |  Spec: docs/superpowers/specs/  |  "
-  "Plan: docs/superpowers/plans/  |  Architecture diagrams: docs/architecture.md",
+p("Repo: /Users/anup.roy/Downloads/Hebbia POC  |  Spec: docs/specs/  |  "
+  "Plan: docs/plans/  |  Architecture diagrams: docs/architecture.md",
   italic=True)
 
 doc.save(OUT)
