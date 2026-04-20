@@ -17,6 +17,8 @@ export function TopBar({ onCommand, show3D, onToggle3D }: Props) {
     mode === "isd" ? "text-[var(--color-accent-verify)]" :
     "text-[var(--color-muted)]";
 
+  // select a stable reference, compute derived counts in render (don't return
+  // a new object from the selector — that triggers an infinite Zustand loop).
   const cells = useGrid((s) => s.view?.cells);
   const activity = { retrieving: 0, drafting: 0, verifying: 0, done: 0, failed: 0, total: 0 };
   for (const c of cells ?? []) {
