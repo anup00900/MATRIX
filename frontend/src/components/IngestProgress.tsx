@@ -1,4 +1,4 @@
-import { FileText, Eye, Database, BookOpen, CheckCircle2, AlertTriangle, X, Sparkles } from "lucide-react";
+import { FileText, Eye, Database, BookOpen, CheckCircle2, AlertTriangle, Sparkles } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useGrid, type IngestStage } from "../store/grid";
 

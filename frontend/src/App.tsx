@@ -2,19 +2,25 @@ import { useEffect, useState } from "react";
 import { api } from "./api/client";
 import { AskBar } from "./components/AskBar";
 import { CommandBar } from "./components/CommandBar";
-import { FlowOverlay } from "./components/FlowOverlay";
 import { FocusPane } from "./components/FocusPane";
 import { IngestFlowOverlay } from "./components/IngestFlowOverlay";
 import { IngestProgress } from "./components/IngestProgress";
+import { InlineFlowPanel } from "./components/InlineFlowPanel";
 import { Matrix } from "./components/Matrix";
+import { Sidebar } from "./components/Sidebar";
 import { SynthesisDock } from "./components/SynthesisDock";
 import { TopBar } from "./components/TopBar";
 import { useGrid } from "./store/grid";
+import type { Session } from "./store/grid";
+import { TEMPLATES } from "./templates";
 import "./index.css";
 
 export default function App() {
   const [gridId, setGridId] = useState<string | null>(null);
-  const { setView, upsertCell, setWorkspace, focused, upsertIngest } = useGrid();
+  const {
+    setView, upsertCell, setWorkspace, focused, upsertIngest,
+    show3D, toggle3D, addSession,
+  } = useGrid();
   const workspaceId = useGrid((s) => s.workspaceId);
   const [cmdOpen, setCmdOpen] = useState(false);
   const [flowCellId, setFlowCellId] = useState<string | null>(null);
@@ -22,6 +28,7 @@ export default function App() {
   const [boot, setBoot] = useState<"idle" | "booting" | "ready" | "error">("idle");
   const [bootErr, setBootErr] = useState<string>("");
 
+  // Boot: create first workspace+grid if none exists
   useEffect(() => {
     if (boot !== "idle") return;
     (async () => {
@@ -31,15 +38,16 @@ export default function App() {
         setWorkspace(ws.id);
         const g = await api.createGrid(ws.id, "Financials", "wiki");
         setGridId(g.id);
+        addSession({ workspaceId: ws.id, gridId: g.id, name: "Financials", createdAt: Date.now() });
         setBoot("ready");
       } catch (e) {
         setBootErr(String(e));
         setBoot("error");
       }
     })();
-  }, [boot, setWorkspace]);
+  }, [boot, setWorkspace, addSession]);
 
-  // workspace SSE: ingest progress
+  // Workspace SSE: ingest progress
   useEffect(() => {
     if (!workspaceId) return;
     const url = `http://127.0.0.1:8000/api/workspaces/${workspaceId}/stream`;
@@ -61,6 +69,7 @@ export default function App() {
     return () => es.close();
   }, [workspaceId, upsertIngest]);
 
+  // Grid SSE: cell updates
   useEffect(() => {
     if (!gridId) return;
     (async () => setView(await api.getGrid(gridId)))();
@@ -81,6 +90,7 @@ export default function App() {
     return () => es.close();
   }, [gridId, setView, upsertCell]);
 
+  // Keyboard shortcuts
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
@@ -98,6 +108,36 @@ export default function App() {
     return () => window.removeEventListener("keydown", h);
   }, [cmdOpen, flowCellId, focused, ingestFlowDocId]);
 
+  // --- Session handlers ---
+
+  const handleNewSession = async () => {
+    try {
+      const ws = await api.createWorkspace("Session");
+      setWorkspace(ws.id);
+      const name = `Session ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+      const g = await api.createGrid(ws.id, name, "wiki");
+      setGridId(g.id);
+      addSession({ workspaceId: ws.id, gridId: g.id, name, createdAt: Date.now() });
+    } catch (e) {
+      console.error("Failed to create session:", e);
+    }
+  };
+
+  const handleSwitchSession = async (s: Session) => {
+    setWorkspace(s.workspaceId);
+    setGridId(s.gridId);
+  };
+
+  const handleUseTemplate = async (key: string) => {
+    if (!gridId) return;
+    const cols = TEMPLATES[key as keyof typeof TEMPLATES];
+    if (!cols) return;
+    for (const c of cols) await api.addColumn(gridId, c.prompt, c.shape);
+    setView(await api.getGrid(gridId));
+  };
+
+  // --- Render ---
+
   if (boot === "error") {
     return (
       <div className="h-full flex items-center justify-center p-8">
@@ -114,18 +154,44 @@ export default function App() {
 
   return (
     <div className="h-full flex flex-col">
-      <TopBar onCommand={() => setCmdOpen(true)} />
+      <TopBar
+        onCommand={() => setCmdOpen(true)}
+        show3D={show3D}
+        onToggle3D={toggle3D}
+      />
       <AskBar gridId={gridId} />
       <IngestProgress onOpen3D={(id) => setIngestFlowDocId(id)} />
-      <div className="flex-1 flex min-h-0">
+
+      {/* Three-panel body */}
+      <div className="flex-1 flex min-h-0 overflow-hidden">
+        {/* Left: icon rail + flyout */}
+        <Sidebar
+          activeGridId={gridId}
+          onNewSession={handleNewSession}
+          onSwitchSession={handleSwitchSession}
+          onUseTemplate={handleUseTemplate}
+        />
+
+        {/* Center: grid + focus pane */}
         <div className="flex-1 flex flex-col min-w-0">
-          <div className="flex-1 min-h-0 overflow-auto">
-            <Matrix />
+          <div className="flex-1 min-h-0 flex overflow-hidden">
+            <div className="flex-1 min-w-0 overflow-auto">
+              <Matrix />
+            </div>
+            {focused && <FocusPane onOpenFlow={(id) => setFlowCellId(id)} />}
           </div>
           <SynthesisDock gridId={gridId} />
         </div>
-        {focused && <FocusPane onOpenFlow={(id) => setFlowCellId(id)} />}
+
+        {/* Right: inline 3D panel */}
+        {show3D && (
+          <InlineFlowPanel
+            cellId={flowCellId}
+            onClose={toggle3D}
+          />
+        )}
       </div>
+
       <CommandBar
         open={cmdOpen}
         onClose={() => setCmdOpen(false)}
@@ -133,10 +199,14 @@ export default function App() {
         onOpenFlow={() => {
           const liveFocus = useGrid.getState().focused;
           setFlowCellId(liveFocus ?? flowCellId);
+          if (!show3D) toggle3D();
         }}
       />
-      {flowCellId && <FlowOverlay cellId={flowCellId} onClose={() => setFlowCellId(null)} />}
-      {ingestFlowDocId && <IngestFlowOverlay documentId={ingestFlowDocId} onClose={() => setIngestFlowDocId(null)} />}
+
+      {/* Full-screen overlays (kept for ingest flow only) */}
+      {ingestFlowDocId && (
+        <IngestFlowOverlay documentId={ingestFlowDocId} onClose={() => setIngestFlowDocId(null)} />
+      )}
     </div>
   );
 }
