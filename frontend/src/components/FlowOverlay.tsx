@@ -89,9 +89,10 @@ function makeLabel(text: string, sub: string, scale = 1.0): THREE.Sprite {
 interface Props {
   cellId: string | null;
   onClose: () => void;
+  variant?: "overlay" | "panel";
 }
 
-export function FlowOverlay({ cellId, onClose }: Props) {
+export function FlowOverlay({ cellId, onClose, variant = "overlay" }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<{
     cleanup: () => void;
@@ -370,8 +371,13 @@ export function FlowOverlay({ cellId, onClose }: Props) {
   }, [activeSet, status]);
 
   return (
-    <div className="fixed inset-0 z-50 bg-[var(--color-canvas)]">
-      {/* top bar */}
+    <div className={
+      variant === "overlay"
+        ? "fixed inset-0 z-50 bg-[var(--color-canvas)]"
+        : "h-full w-full relative bg-[var(--color-canvas)]"
+    }>
+      {/* top bar — overlay mode only */}
+      {variant === "overlay" && (
       <div className="h-11 flex items-center justify-between px-4 border-b border-[var(--color-border)] bg-[var(--color-canvas)]/80 backdrop-blur">
         <div className="flex items-center gap-3 text-[12px]">
           <div className="font-[var(--font-ui)]">◇ 3D Flow</div>
@@ -405,9 +411,10 @@ export function FlowOverlay({ cellId, onClose }: Props) {
           <X className="w-3.5 h-3.5" />
         </button>
       </div>
+      )}
 
       {/* the three.js canvas container */}
-      <div ref={containerRef} className="absolute inset-0 top-11" />
+      <div ref={containerRef} className={variant === "overlay" ? "absolute inset-0 top-11" : "absolute inset-0"} />
 
       {/* legend */}
       <div className="absolute left-5 bottom-5 p-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)]/75 backdrop-blur text-[12px] max-w-xs leading-snug">
