@@ -1,7 +1,6 @@
 import { Command } from "cmdk";
 import { api } from "../api/client";
 import { useGrid } from "../store/grid";
-import { TEMPLATES } from "../templates";
 
 export function CommandBar({
   open, onClose, gridId, onOpenFlow,
@@ -133,22 +132,6 @@ export function CommandBar({
                   }}
                 >
                   Switch to: {m}
-                </Command.Item>
-              ))}
-            </Command.Group>
-            <Command.Group heading="Templates" className="text-[10px] uppercase tracking-wide text-[var(--color-muted)] px-3 py-2">
-              {Object.entries(TEMPLATES).map(([name, cols]) => (
-                <Command.Item
-                  key={name}
-                  className="px-3 py-2 rounded data-[selected=true]:bg-[var(--color-surface-2)] cursor-pointer text-[13px]"
-                  onSelect={async () => {
-                    for (const c of cols) await api.addColumn(gridId, c.prompt, c.shape);
-                    await refresh();
-                    onClose();
-                  }}
-                >
-                  Template · {name}{" "}
-                  <span className="text-[var(--color-muted)] text-[11px]">· {cols.length} cols</span>
                 </Command.Item>
               ))}
             </Command.Group>
