@@ -2,7 +2,13 @@ import { Command, Download, Activity } from "lucide-react";
 import { api } from "../api/client";
 import { useGrid } from "../store/grid";
 
-export function TopBar({ onCommand }: { onCommand: () => void }) {
+interface Props {
+  onCommand: () => void;
+  show3D: boolean;
+  onToggle3D: () => void;
+}
+
+export function TopBar({ onCommand, show3D, onToggle3D }: Props) {
   const v = useGrid((s) => s.view);
   const mode = v?.grid.retriever_mode;
   const modeLabel = mode === "wiki" ? "Wiki" : mode === "isd" ? "ISD" : mode === "naive" ? "Naive" : "—";
@@ -11,8 +17,6 @@ export function TopBar({ onCommand }: { onCommand: () => void }) {
     mode === "isd" ? "text-[var(--color-accent-verify)]" :
     "text-[var(--color-muted)]";
 
-  // select a stable reference, compute derived counts in render (don't return
-  // a new object from the selector — that triggers an infinite Zustand loop).
   const cells = useGrid((s) => s.view?.cells);
   const activity = { retrieving: 0, drafting: 0, verifying: 0, done: 0, failed: 0, total: 0 };
   for (const c of cells ?? []) {
@@ -28,7 +32,7 @@ export function TopBar({ onCommand }: { onCommand: () => void }) {
   return (
     <div className="h-11 border-b border-[var(--color-border)] px-4 flex items-center gap-3
                     text-[12px] bg-[var(--color-canvas)]/80 backdrop-blur sticky top-0 z-10">
-      <div className="font-[var(--font-ui)] text-[var(--color-text)] tracking-tight">◇ Matrix</div>
+      <div className="font-[var(--font-ui)] text-[var(--color-text)] tracking-tight">◇ INGRID</div>
       <div className="h-3 w-px bg-[var(--color-border)]" />
       <div className="text-[var(--color-muted)]">{v?.grid.name ?? "new grid"}</div>
       <div className="h-3 w-px bg-[var(--color-border)]" />
@@ -37,7 +41,6 @@ export function TopBar({ onCommand }: { onCommand: () => void }) {
         {modeLabel}
       </div>
 
-      {/* activity indicator */}
       <div className="h-3 w-px bg-[var(--color-border)]" />
       <div className="flex items-center gap-2 font-[var(--font-mono)] text-[11px]">
         <Activity className={`w-3 h-3 ${busy > 0 ? "text-[var(--color-accent-streaming)] animate-pulse" : "text-[var(--color-muted)]"}`} />
@@ -72,6 +75,20 @@ export function TopBar({ onCommand }: { onCommand: () => void }) {
           <Download className="w-3 h-3" /> CSV
         </a>
       )}
+
+      <button
+        onClick={onToggle3D}
+        className={`px-2.5 py-1 rounded border transition flex items-center gap-1.5 font-[var(--font-mono)]
+          ${show3D
+            ? "border-[var(--color-accent-streaming)] text-[var(--color-accent-streaming)] bg-[var(--color-accent-streaming)]/10"
+            : "border-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-text)] hover:border-[var(--color-muted)]"
+          }`}
+        title="Toggle 3D pipeline view"
+        aria-pressed={show3D}
+      >
+        ⬡ 3D
+      </button>
+
       <button
         onClick={onCommand}
         className="px-2.5 py-1 rounded border border-[var(--color-border)] text-[var(--color-muted)]
