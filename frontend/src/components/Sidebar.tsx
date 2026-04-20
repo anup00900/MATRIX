@@ -63,7 +63,6 @@ export function Sidebar({ activeGridId, onNewSession, onSwitchSession, onUseTemp
             className="absolute top-0 left-10 z-20 w-56 h-full
                        border-r border-[var(--color-border)] bg-[var(--color-canvas)]
                        shadow-2xl overflow-y-auto"
-            style={{ maxHeight: "100vh" }}
             onClick={(e) => e.stopPropagation()}
           >
             {sidebarView === "sessions" && (
