@@ -123,7 +123,8 @@ export default function App() {
     }
   };
 
-  const handleSwitchSession = async (s: Session) => {
+  const handleSwitchSession = (s: Session) => {
+    setFlowCellId(null);
     setWorkspace(s.workspaceId);
     setGridId(s.gridId);
   };
