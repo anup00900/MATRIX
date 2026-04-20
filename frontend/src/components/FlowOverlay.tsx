@@ -113,6 +113,7 @@ export function FlowOverlay({ cellId, onClose, variant = "overlay" }: Props) {
 
   // Escape closes
   useEffect(() => {
+    if (variant !== "overlay") return;
     const h = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.stopPropagation();
@@ -121,7 +122,7 @@ export function FlowOverlay({ cellId, onClose, variant = "overlay" }: Props) {
     };
     window.addEventListener("keydown", h, true);
     return () => window.removeEventListener("keydown", h, true);
-  }, [onClose]);
+  }, [onClose, variant]);
 
   // Build the three.js scene once; keep reference to update active stages.
   useEffect(() => {
@@ -416,7 +417,8 @@ export function FlowOverlay({ cellId, onClose, variant = "overlay" }: Props) {
       {/* the three.js canvas container */}
       <div ref={containerRef} className={variant === "overlay" ? "absolute inset-0 top-11" : "absolute inset-0"} />
 
-      {/* legend */}
+      {/* legend — overlay mode only (too wide for inline panel) */}
+      {variant === "overlay" && (
       <div className="absolute left-5 bottom-5 p-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)]/75 backdrop-blur text-[12px] max-w-xs leading-snug">
         <div className="text-[10px] uppercase tracking-wider text-[var(--color-muted)] mb-1.5">Pipeline</div>
         <div className="space-y-1 text-[12px]">
@@ -429,10 +431,11 @@ export function FlowOverlay({ cellId, onClose, variant = "overlay" }: Props) {
         <div className="text-[10px] uppercase tracking-wider text-[var(--color-muted)] mt-3 mb-1.5">Hint</div>
         <div className="text-[var(--color-muted)] text-[11px] font-[var(--font-mono)]">drag to orbit · scroll to zoom</div>
       </div>
+      )}
 
       {/* right-side latest-state card */}
       {cell && cell.answer_json && (
-        <div className="absolute right-5 top-16 w-80 p-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)]/85 backdrop-blur text-[12px]">
+        <div className="absolute right-5 top-16 w-72 max-w-[calc(100%-2.5rem)] p-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)]/85 backdrop-blur text-[12px]">
           <div className="text-[10px] uppercase tracking-wider text-[var(--color-muted)] mb-1">Answer</div>
           <div className="text-[14px] leading-snug">
             {typeof cell.answer_json.value === "string"
