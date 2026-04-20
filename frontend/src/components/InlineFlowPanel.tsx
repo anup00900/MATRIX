@@ -27,7 +27,7 @@ export function InlineFlowPanel({ cellId, onClose }: Props) {
   const status: CellStatus = cell?.status ?? "idle";
 
   return (
-    <div className="w-[300px] flex-shrink-0 border-l border-[var(--color-border)] flex flex-col h-full">
+    <div className="w-[480px] flex-shrink-0 border-l border-[var(--color-border)] flex flex-col h-full">
       {/* panel header */}
       <div className="h-9 flex items-center justify-between px-3 border-b border-[var(--color-border)] bg-[var(--color-surface)]/80 backdrop-blur flex-shrink-0">
         <div className="flex items-center gap-2 text-[11px] font-[var(--font-mono)]">

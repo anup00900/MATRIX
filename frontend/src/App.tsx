@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "./api/client";
 import { AskBar } from "./components/AskBar";
 import { CommandBar } from "./components/CommandBar";
@@ -27,10 +27,13 @@ export default function App() {
   const [ingestFlowDocId, setIngestFlowDocId] = useState<string | null>(null);
   const [boot, setBoot] = useState<"idle" | "booting" | "ready" | "error">("idle");
   const [bootErr, setBootErr] = useState<string>("");
+  // useRef prevents React StrictMode from double-firing the boot effect
+  const booted = useRef(false);
 
   // Boot: create first workspace+grid if none exists
   useEffect(() => {
-    if (boot !== "idle") return;
+    if (booted.current) return;
+    booted.current = true;
     (async () => {
       setBoot("booting");
       try {
