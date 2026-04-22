@@ -16,6 +16,7 @@ ITEM_RE = re.compile(r"^(Item\s+\d+[A-Z]?\.?|Part\s+[IVX]+)", re.IGNORECASE)
 BATCH_SIZE = 2          # 2 pages per call → more tokens available per page
 BATCH_CONCURRENCY = 5
 RENDER_DPI = 200        # sharp rendering for dense tables and small numbers
+VECTOR_DRAWING_CHART_THRESHOLD = 10  # pages with >= N drawing ops likely contain a chart
 
 EMPTY_CELL_RATIO_THRESHOLD = 0.30
 
@@ -889,7 +890,14 @@ async def parse_pdf(
     for i in range(total):
         b64, w, h, fitz_text = _render_page(mu[i])
         pages_raw.append((i + 1, b64, w, h, fitz_text))
-        page_image_counts[i + 1] = len(mu[i].get_images(full=True))
+        # "Chart-bearing" signal for the detector: raster images are obvious,
+        # but many financial PDFs (matplotlib / ReportLab output) draw charts
+        # as vector ops with zero raster images. Count a page as chart-bearing
+        # if it has either raster images or a non-trivial number of drawing ops.
+        n_images = len(mu[i].get_images(full=True))
+        n_drawings = len(mu[i].get_drawings())
+        has_visual = n_images > 0 or n_drawings >= VECTOR_DRAWING_CHART_THRESHOLD
+        page_image_counts[i + 1] = 1 if has_visual else 0
         if save_images_dir is not None:
             save_images_dir.mkdir(parents=True, exist_ok=True)
             img_path = save_images_dir / f"{i + 1:03d}.png"
