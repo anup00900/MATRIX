@@ -125,6 +125,46 @@ def _find_chart_regions(page: Page) -> list[ChartRegion]:
     return regions
 
 
+def _detect_chart_pages(
+    pages: list[Page],
+    page_image_counts: dict[int, int],
+) -> dict[int, list[ChartRegion]]:
+    """Return pages that need chart-aware re-extraction, keyed by page_no.
+
+    Signature 1 — any contiguous |-table block with >= EMPTY_CELL_RATIO_THRESHOLD
+    empty data cells (handled by `_find_chart_regions`).
+    Signature 2 — page has >= 1 fitz image AND page markdown has no '|' at all
+    (chart was not turned into a table by the initial passes).
+    """
+    out: dict[int, list[ChartRegion]] = {}
+    for p in pages:
+        if p.failed:
+            continue
+
+        regions = _find_chart_regions(p)
+
+        has_image = page_image_counts.get(p.page_no, 0) > 0
+        has_any_table = "|" in p.markdown
+        if has_image and not has_any_table:
+            # Anchor: end of page markdown (append). Future refinement could map
+            # fitz image y-coordinate to a specific insertion line.
+            n_lines = len(p.markdown.splitlines())
+            regions.append(ChartRegion(
+                page_no=p.page_no,
+                chart_index=len(regions),
+                line_start=n_lines,
+                line_end=n_lines,
+                original_text="",
+                kind="image_no_table",
+                image_bbox=None,
+            ))
+
+        if regions:
+            out[p.page_no] = regions
+
+    return out
+
+
 # ── Extraction prompt ────────────────────────────────────────────────────────
 BATCH_SYSTEM = (
     "You are a universal PDF page-to-markdown extractor. "

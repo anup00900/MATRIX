@@ -179,3 +179,57 @@ def test_find_chart_regions_coexists_with_real_table():
     assert len(regions) == 1
     assert "| Net Income |" in regions[0].original_text
     assert "27" not in regions[0].original_text
+
+
+from app.parser.pdf import _detect_chart_pages
+
+
+def test_detect_chart_pages_empty_cell_signature():
+    pages = [
+        _make_page(1, "# Intro\n\nJust prose, no table.\n"),
+        _make_page(2, "| A | B |\n|---|---|\n|  |  |\n|  |  |\n"),
+    ]
+    image_counts = {1: 0, 2: 0}
+    result = _detect_chart_pages(pages, image_counts)
+    assert 1 not in result
+    assert 2 in result
+    assert len(result[2]) == 1
+    assert result[2][0].kind == "empty_cells"
+
+
+def test_detect_chart_pages_image_without_table_signature():
+    pages = [
+        _make_page(6, "# Selected Financial Chart\n\nThe following chart was included.\n\nSource: 10-K.\n"),
+    ]
+    image_counts = {6: 1}  # fitz detected an embedded image
+    result = _detect_chart_pages(pages, image_counts)
+    assert 6 in result
+    assert len(result[6]) == 1
+    assert result[6][0].kind == "image_no_table"
+    r = result[6][0]
+    assert r.line_start >= 0
+    assert r.line_end >= r.line_start
+
+
+def test_detect_chart_pages_image_but_has_table_not_flagged():
+    pages = [
+        _make_page(2, "| A | B |\n|---|---|\n| 1 | 2 |\n"),
+    ]
+    image_counts = {2: 1}  # image exists but a table was already emitted
+    result = _detect_chart_pages(pages, image_counts)
+    # Signature 2 requires NO pipes; a populated table disqualifies.
+    assert result == {}
+
+
+def test_detect_chart_pages_no_image_no_table_not_flagged():
+    pages = [_make_page(1, "# Heading\n\nSome prose.\n")]
+    image_counts = {1: 0}
+    result = _detect_chart_pages(pages, image_counts)
+    assert result == {}
+
+
+def test_detect_chart_pages_failed_page_not_flagged():
+    p = Page(page_no=5, markdown="", width=612.0, height=792.0, failed=True)
+    image_counts = {5: 1}
+    result = _detect_chart_pages([p], image_counts)
+    assert result == {}
