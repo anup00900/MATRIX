@@ -329,6 +329,40 @@ CHART_EXTRACT_SYSTEM = (
 )
 
 
+# ── Chart verification prompt (Pass C2) ──────────────────────────────────────
+CHART_VERIFY_SYSTEM = (
+    "You are a chart-data verifier and corrector.\n"
+    "You will receive a page image that contains one or more charts AND a "
+    "first-pass markdown block describing each chart. Your job is to audit "
+    "the block against the image and correct any mistakes.\n\n"
+
+    "━━ VALUE VERIFICATION (per data point) ━━\n\n"
+    "  1. For EACH cell in each data table, re-read the corresponding bar "
+    "(or line point, or pie slice) from the image INDEPENDENTLY — do not "
+    "anchor on the first-pass value.\n"
+    "  2. Identify the minor tick increment on the y-axis.\n"
+    "  3. If your independent re-read differs from the first-pass value by "
+    "more than one minor tick, correct the value to match your re-read.\n\n"
+
+    "━━ COMPLETENESS VERIFICATION ━━\n\n"
+    "  4. Count the bars or points visible in the image. Count the data rows "
+    "in the table. If the image has more data points than the table, ADD the "
+    "missing rows.\n"
+    "  5. Count the series in the legend. Count the data columns in the "
+    "table (excluding the x-axis column). If the legend has more series than "
+    "the table, ADD the missing columns.\n\n"
+
+    "━━ DERIVED METRIC REFRESH ━━\n\n"
+    "  6. After any corrections to the data table, recompute YoY changes, "
+    "CAGR, min/max, series comparison, trend, and key observations from the "
+    "corrected table. Replace any stale derived values.\n\n"
+
+    "Return ONLY valid JSON — no markdown fences, no explanation. "
+    "Return the COMPLETE corrected block (same output format as the input):\n"
+    '[{"page_no": <int>, "chart_index": <int>, "markdown": "<corrected block>"}]'
+)
+
+
 def _sha256(path: Path) -> str:
     h = hashlib.sha256()
     h.update(path.read_bytes())
@@ -693,6 +727,101 @@ async def _extract_charts(
         _guarded(pno, regs) for pno, regs in regions_by_page.items()
     ))
 
+    merged: dict[tuple[int, int], str] = {}
+    for r in results:
+        merged.update(r)
+    return merged
+
+
+async def _verify_charts(
+    c1_blocks: dict[tuple[int, int], str],
+    pages_raw: list[tuple[int, str, float, float, str]],
+) -> dict[tuple[int, int], str]:
+    """Pass C2 — re-read each chart and correct mistakes.
+
+    Returns a dict with the same keys as `c1_blocks`. On failure for any
+    page, the C1 block is carried through unchanged (no regression).
+    """
+    if not c1_blocks:
+        return {}
+
+    raw_by_pno = {pno: b64 for pno, b64, _, _, _ in pages_raw}
+    # Group C1 blocks by page.
+    by_page: dict[int, list[tuple[int, str]]] = {}
+    for (pno, cidx), md in c1_blocks.items():
+        by_page.setdefault(pno, []).append((cidx, md))
+
+    async def _run_one(page_no: int, charts: list[tuple[int, str]]) -> dict[tuple[int, int], str]:
+        b64 = raw_by_pno.get(page_no)
+        if b64 is None:
+            # No image to verify against — carry through.
+            return {(page_no, cidx): md for cidx, md in charts}
+
+        content: list[dict] = [
+            {"type": "text", "text": f"Page {page_no} — verify {len(charts)} chart block(s)."},
+        ]
+        for cidx, md in charts:
+            content.append({
+                "type": "text",
+                "text": f"[Chart {cidx} — first-pass block to verify]\n{md}\n[End chart {cidx}]",
+            })
+        content.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:image/png;base64,{b64}"},
+        })
+
+        try:
+            resp = await llm.client.chat.completions.create(
+                model=llm.deployment,
+                temperature=0.0,
+                max_tokens=6000,
+                messages=[
+                    {"role": "system", "content": CHART_VERIFY_SYSTEM},
+                    {"role": "user", "content": content},
+                ],
+            )
+            if resp.usage:
+                llm._cost_tokens += resp.usage.total_tokens
+            text = (resp.choices[0].message.content or "").strip()
+            if text.startswith("```"):
+                text = re.sub(r"^```[a-z]*\n?", "", text)
+                text = re.sub(r"```\s*$", "", text.strip())
+            parsed: list[dict] = json.loads(text)
+            corrected: dict[tuple[int, int], str] = {}
+            for item in parsed:
+                pno = int(item.get("page_no", page_no))
+                cidx = int(item.get("chart_index", 0))
+                md = item.get("markdown") or ""
+                if md.strip():
+                    corrected[(pno, cidx)] = md
+            # Any chart we failed to verify carries through its C1 block.
+            out: dict[tuple[int, int], str] = {}
+            for cidx, md in charts:
+                key = (page_no, cidx)
+                out[key] = corrected.get(key, md)
+            log.info(
+                "parser.chart.c2_done",
+                page=page_no,
+                n_charts=len(charts),
+                n_corrected=sum(
+                    1 for c_idx, c1_md in charts
+                    if corrected.get((page_no, c_idx), c1_md) != c1_md
+                ),
+            )
+            return out
+        except Exception as e:
+            log.warning("parser.chart.c2_failed", page=page_no, error=str(e)[:300])
+            return {(page_no, cidx): md for cidx, md in charts}
+
+    sem = asyncio.Semaphore(BATCH_CONCURRENCY)
+
+    async def _guarded(page_no: int, charts: list[tuple[int, str]]):
+        async with sem:
+            return await _run_one(page_no, charts)
+
+    results = await asyncio.gather(*(
+        _guarded(pno, charts) for pno, charts in by_page.items()
+    ))
     merged: dict[tuple[int, int], str] = {}
     for r in results:
         merged.update(r)

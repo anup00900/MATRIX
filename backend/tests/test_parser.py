@@ -474,3 +474,60 @@ async def test_extract_charts_strips_code_fences(monkeypatch):
     blocks = await _extract_charts({3: regions}, pages_raw)
     assert (3, 0) in blocks
     assert "### ok" in blocks[(3, 0)]
+
+
+from app.parser.pdf import _verify_charts, CHART_VERIFY_SYSTEM
+
+
+def test_chart_verify_system_prompt_contains_required_sections():
+    p = CHART_VERIFY_SYSTEM
+    assert "re-read" in p.lower() or "re read" in p.lower()
+    assert "count" in p.lower()  # must instruct model to count bars/points
+    assert "recompute" in p.lower()  # derived metrics
+    assert "minor tick" in p.lower() or "tick" in p.lower()
+
+
+@pytest.mark.asyncio
+async def test_verify_charts_returns_corrected_block(monkeypatch):
+    c1_blocks = {
+        (3, 0): "### Revenue\n| Year | Revenue |\n|---|---|\n| FY2022 | 99 |\n",
+    }
+    pages_raw = [(3, "b64data", 612.0, 792.0, "")]
+
+    corrected = "### Revenue\n| Year | Revenue |\n|---|---|\n| FY2022 | 27 |\n"
+    response_json = _json.dumps([{
+        "page_no": 3, "chart_index": 0, "markdown": corrected,
+    }])
+    monkeypatch.setattr(
+        pdf_mod.llm.client.chat.completions, "create",
+        AsyncMock(return_value=_mock_llm_response(response_json)),
+    )
+
+    verified = await _verify_charts(c1_blocks, pages_raw)
+    assert verified[(3, 0)] == corrected
+
+
+@pytest.mark.asyncio
+async def test_verify_charts_falls_back_to_c1_on_failure(monkeypatch):
+    c1_blocks = {(3, 0): "### C1 output"}
+    pages_raw = [(3, "b64data", 612.0, 792.0, "")]
+
+    async def raising(**kwargs):
+        raise RuntimeError("boom")
+    monkeypatch.setattr(pdf_mod.llm.client.chat.completions, "create", raising)
+
+    verified = await _verify_charts(c1_blocks, pages_raw)
+    assert verified[(3, 0)] == "### C1 output"
+
+
+@pytest.mark.asyncio
+async def test_verify_charts_empty_input_skips_llm(monkeypatch):
+    called = {"n": 0}
+    async def fake(**kwargs):
+        called["n"] += 1
+        return _mock_llm_response("[]")
+    monkeypatch.setattr(pdf_mod.llm.client.chat.completions, "create", fake)
+
+    verified = await _verify_charts({}, [])
+    assert verified == {}
+    assert called["n"] == 0
