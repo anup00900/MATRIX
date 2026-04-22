@@ -556,3 +556,88 @@ async def test_verify_charts_partial_response_carries_through(monkeypatch):
     assert verified[(3, 0)] == "### corrected chart0"
     assert verified[(3, 1)] == "### C1 chart1"
     assert set(verified.keys()) == {(3, 0), (3, 1)}
+
+
+@pytest.mark.asyncio
+async def test_parse_pdf_end_to_end_with_chart_page(monkeypatch, tmp_path):
+    """End-to-end: Pass A emits empty-cell table; Pass C1+C2 fill it."""
+    # Build a tiny one-page PDF with NO embedded text (simulating a chart page).
+    pdf_path = tmp_path / "tiny_chart.pdf"
+    import fitz
+    doc = fitz.open()
+    page = doc.new_page(width=612, height=792)
+    # No text inserted — mimics a chart-only page.
+    doc.save(str(pdf_path))
+    doc.close()
+
+    call_sequence = {"n": 0}
+
+    def response_for(call_idx: int) -> str:
+        # Pass A: emits empty-cell table.
+        if call_idx == 0:
+            return _json.dumps([{
+                "page_no": 1,
+                "markdown": "| Year | Revenue |\n|---|---|\n| FY2022 |  |\n| FY2023 |  |\n",
+            }])
+        # Pass B: validation — returns the same empty-cell markdown (no fix available).
+        if call_idx == 1:
+            return _json.dumps([{
+                "page_no": 1,
+                "markdown": "| Year | Revenue |\n|---|---|\n| FY2022 |  |\n| FY2023 |  |\n",
+            }])
+        # Pass C1: chart extraction — fills the values.
+        if call_idx == 2:
+            return _json.dumps([{
+                "page_no": 1, "chart_index": 0,
+                "markdown": "### Revenue\n**Chart type:** bar\n\n| Year | Revenue |\n|---|---|\n| FY2022 | 27 |\n| FY2023 | 61 |\n\n**Trend:** up.\n",
+            }])
+        # Pass C2: verification — returns corrected block.
+        return _json.dumps([{
+            "page_no": 1, "chart_index": 0,
+            "markdown": "### Revenue\n**Chart type:** bar\n\n| Year | Revenue |\n|---|---|\n| FY2022 | 27 |\n| FY2023 | 61 |\n\n**Trend:** verified — revenue up.\n",
+        }])
+
+    async def fake_create(**kwargs):
+        idx = call_sequence["n"]
+        call_sequence["n"] += 1
+        return _mock_llm_response(response_for(idx))
+
+    monkeypatch.setattr(pdf_mod.llm.client.chat.completions, "create", fake_create)
+
+    result = await parse_pdf(pdf_path)
+    assert result.n_pages == 1
+    md = result.pages[0].markdown
+    # Chart block spliced in; empty-cell skeleton removed.
+    assert "### Revenue" in md
+    assert "| FY2022 | 27 |" in md
+    assert "| FY2023 | 61 |" in md
+    assert "verified — revenue up" in md
+    assert "| FY2022 |  |" not in md
+
+
+@pytest.mark.asyncio
+async def test_parse_pdf_text_only_page_no_chart_passes(monkeypatch, tmp_path):
+    """Text-only page must NOT trigger C1/C2 — only 1 LLM call total (Pass A)."""
+    pdf_path = tmp_path / "tiny_text.pdf"
+    import fitz
+    doc = fitz.open()
+    page = doc.new_page(width=612, height=792)
+    page.insert_text((72, 72), "## Section One\n\nPure prose, no chart, no empty cells.")
+    doc.save(str(pdf_path))
+    doc.close()
+
+    calls = {"n": 0}
+    async def fake_create(**kwargs):
+        calls["n"] += 1
+        # Pass A returns clean prose; Pass B skips because no '|' in markdown;
+        # detector finds nothing; C1/C2 skip.
+        return _mock_llm_response(_json.dumps([{
+            "page_no": 1,
+            "markdown": "## Section One\n\nPure prose, no chart.\n",
+        }]))
+    monkeypatch.setattr(pdf_mod.llm.client.chat.completions, "create", fake_create)
+
+    result = await parse_pdf(pdf_path)
+    # Only Pass A fires — no '|' in markdown means Pass B skips, detector finds nothing.
+    assert calls["n"] == 1
+    assert "Pure prose" in result.pages[0].markdown

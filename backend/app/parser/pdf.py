@@ -843,9 +843,11 @@ async def parse_pdf(
     total = len(mu)
 
     pages_raw: list[tuple[int, str, float, float, str]] = []
+    page_image_counts: dict[int, int] = {}
     for i in range(total):
         b64, w, h, fitz_text = _render_page(mu[i])
         pages_raw.append((i + 1, b64, w, h, fitz_text))
+        page_image_counts[i + 1] = len(mu[i].get_images(full=True))
         if save_images_dir is not None:
             save_images_dir.mkdir(parents=True, exist_ok=True)
             img_path = save_images_dir / f"{i + 1:03d}.png"
@@ -875,6 +877,19 @@ async def parse_pdf(
 
     # Second pass: fix table structure (wrapped rows, header merging) + validate numbers
     pages = await _validate_table_pages(pages, pages_raw)
+
+    # ── Chart-aware pipeline (Passes C1 + C2) ────────────────────────────
+    regions_by_page = _detect_chart_pages(pages, page_image_counts)
+    if regions_by_page:
+        log.info(
+            "parser.chart.detected",
+            pages=list(regions_by_page.keys()),
+            total_regions=sum(len(v) for v in regions_by_page.values()),
+        )
+        c1_blocks = await _extract_charts(regions_by_page, pages_raw)
+        verified = await _verify_charts(c1_blocks, pages_raw)
+        pages = _splice_chart_blocks(pages, regions_by_page, verified)
+        log.info("parser.chart.spliced", n_blocks=len(verified))
 
     sections = _detect_sections(pages)
     section_by_page: dict[int, str] = {}
