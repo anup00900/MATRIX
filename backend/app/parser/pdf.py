@@ -1,6 +1,8 @@
 from __future__ import annotations
 import asyncio, base64, hashlib, io, json, re
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 import fitz, tiktoken
 from PIL import Image
 from ulid import ULID
@@ -14,6 +16,67 @@ ITEM_RE = re.compile(r"^(Item\s+\d+[A-Z]?\.?|Part\s+[IVX]+)", re.IGNORECASE)
 BATCH_SIZE = 2          # 2 pages per call → more tokens available per page
 BATCH_CONCURRENCY = 5
 RENDER_DPI = 200        # sharp rendering for dense tables and small numbers
+
+EMPTY_CELL_RATIO_THRESHOLD = 0.30
+
+
+@dataclass
+class ChartRegion:
+    """A region of page markdown that needs chart-aware re-extraction."""
+    page_no: int
+    chart_index: int                 # 0-based within the page
+    line_start: int                  # 0-based inclusive line index in page markdown
+    line_end: int                    # 0-based exclusive
+    original_text: str               # the text we will replace
+    kind: Literal["empty_cells", "image_no_table"]
+    image_bbox: tuple[float, float, float, float] | None = None
+
+
+def _empty_cell_ratio(table_text: str) -> tuple[float, int, int]:
+    """Return (ratio, total_data_cells, empty_data_cells) for a markdown table block.
+
+    - Counts only rows that start (after strip) with '|'.
+    - Skips the header row (first such row) and the separator row (contains '---').
+    - Treats whitespace-only cells between pipes as empty.
+    - Returns (0.0, 0, 0) if fewer than 2 data rows exist.
+    """
+    rows = [
+        ln.strip() for ln in table_text.splitlines()
+        if ln.strip().startswith("|")
+    ]
+    if len(rows) < 3:  # need header + separator + >=1 data row
+        return 0.0, 0, 0
+
+    # Drop header (rows[0]) and separator (first row containing '---' after header).
+    data_rows: list[str] = []
+    seen_sep = False
+    for r in rows[1:]:
+        if not seen_sep and "---" in r:
+            seen_sep = True
+            continue
+        data_rows.append(r)
+    if not data_rows:
+        return 0.0, 0, 0
+
+    total = 0
+    empty = 0
+    for r in data_rows:
+        # Split and drop the leading/trailing empty strings from outer pipes.
+        parts = [p for p in r.split("|")]
+        if parts and parts[0] == "":
+            parts = parts[1:]
+        if parts and parts[-1] == "":
+            parts = parts[:-1]
+        # Skip the row label (first cell — usually "FY2022" etc). Data cells are the rest.
+        data_cells = parts[1:]
+        for c in data_cells:
+            total += 1
+            if c.strip() == "":
+                empty += 1
+    if total == 0:
+        return 0.0, 0, 0
+    return empty / total, total, empty
+
 
 # ── Extraction prompt ────────────────────────────────────────────────────────
 BATCH_SYSTEM = (

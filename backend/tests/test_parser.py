@@ -27,3 +27,68 @@ async def test_parse_tiny(monkeypatch):
         assert c.text.strip()
     # vision called exactly once per page
     assert call["i"] == 3
+
+
+from app.parser.pdf import _empty_cell_ratio, ChartRegion
+
+
+def test_empty_cell_ratio_all_empty():
+    table = (
+        "| Year | Revenue | Net Income |\n"
+        "|---|---|---|\n"
+        "| FY2022 |  |  |\n"
+        "| FY2023 |  |  |\n"
+        "| FY2024 |  |  |\n"
+    )
+    ratio, total, empty = _empty_cell_ratio(table)
+    assert total == 6
+    assert empty == 6
+    assert ratio == 1.0
+
+
+def test_empty_cell_ratio_all_filled():
+    table = (
+        "| Year | Revenue | Net Income |\n"
+        "|---|---|---|\n"
+        "| FY2022 | 27 | 10 |\n"
+        "| FY2023 | 27 | 10 |\n"
+    )
+    ratio, total, empty = _empty_cell_ratio(table)
+    assert total == 4
+    assert empty == 0
+    assert ratio == 0.0
+
+
+def test_empty_cell_ratio_mixed():
+    # 2 data rows × 2 data cells after excluding the row-label column = 4 cells.
+    # Empty: middle col on row1 (1) + both data cells on row2 (2) = 3.
+    table = (
+        "| Year | Revenue | Net Income |\n"
+        "|---|---|---|\n"
+        "| FY2022 |  | 10 |\n"
+        "| FY2023 |  |  |\n"
+    )
+    ratio, total, empty = _empty_cell_ratio(table)
+    assert total == 4
+    assert empty == 3
+    assert ratio == 0.75
+
+
+def test_empty_cell_ratio_not_a_table():
+    ratio, total, empty = _empty_cell_ratio("Just some prose, no pipes here.")
+    assert total == 0
+    assert empty == 0
+    assert ratio == 0.0
+
+
+def test_chart_region_dataclass_shape():
+    r = ChartRegion(
+        page_no=3, chart_index=0,
+        line_start=10, line_end=15,
+        original_text="| a | b |\n|---|---|\n|  |  |\n",
+        kind="empty_cells",
+        image_bbox=None,
+    )
+    assert r.page_no == 3
+    assert r.kind == "empty_cells"
+    assert r.line_end - r.line_start == 5
