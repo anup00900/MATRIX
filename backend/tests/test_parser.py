@@ -211,13 +211,33 @@ def test_detect_chart_pages_image_without_table_signature():
     assert r.line_end >= r.line_start
 
 
-def test_detect_chart_pages_image_but_has_table_not_flagged():
+def test_detect_chart_pages_image_with_real_table_still_flagged():
+    # Relaxed signature 2: a page with a chart image AND a fully populated
+    # table (no empty-cell skeleton) STILL needs chart-aware re-extraction
+    # so the chart narrative block can be appended below the table.
     pages = [
         _make_page(2, "| A | B |\n|---|---|\n| 1 | 2 |\n"),
     ]
-    image_counts = {2: 1}  # image exists but a table was already emitted
+    image_counts = {2: 1}
     result = _detect_chart_pages(pages, image_counts)
-    # Signature 2 requires NO pipes; a populated table disqualifies.
+    assert 2 in result
+    assert len(result[2]) == 1
+    assert result[2][0].kind == "image_no_table"
+
+
+def test_detect_chart_pages_idempotent_on_existing_narrative():
+    # If the page already contains a chart-narrative block (marker
+    # "**Chart type:**"), re-detecting must NOT fire again — idempotent.
+    md = (
+        "| A | B |\n|---|---|\n| 1 | 2 |\n"
+        "\n"
+        "### Existing chart analysis\n"
+        "**Chart type:** bar\n"
+        "**Trend:** already analyzed.\n"
+    )
+    pages = [_make_page(2, md)]
+    image_counts = {2: 1}
+    result = _detect_chart_pages(pages, image_counts)
     assert result == {}
 
 

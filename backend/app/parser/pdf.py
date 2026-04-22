@@ -125,6 +125,9 @@ def _find_chart_regions(page: Page) -> list[ChartRegion]:
     return regions
 
 
+CHART_NARRATIVE_MARKER = "**Chart type:**"
+
+
 def _detect_chart_pages(
     pages: list[Page],
     page_image_counts: dict[int, int],
@@ -133,8 +136,12 @@ def _detect_chart_pages(
 
     Signature 1 — any contiguous |-table block with >= EMPTY_CELL_RATIO_THRESHOLD
     empty data cells (handled by `_find_chart_regions`).
-    Signature 2 — page has >= 1 fitz image AND page markdown has no '|' at all
-    (chart was not turned into a table by the initial passes).
+    Signature 2 — page has >= 1 fitz image AND the markdown does not already
+    contain a chart-narrative block (identified by the "**Chart type:**"
+    marker). This fires for chart-bearing pages whose first-pass output is
+    either empty of tables OR contains only a real populated table without
+    any chart-analysis narrative. Idempotent: pages already carrying a chart
+    narrative skip re-extraction.
     """
     out: dict[int, list[ChartRegion]] = {}
     for p in pages:
@@ -144,10 +151,10 @@ def _detect_chart_pages(
         regions = _find_chart_regions(p)
 
         has_image = page_image_counts.get(p.page_no, 0) > 0
-        has_any_table = "|" in p.markdown
-        if has_image and not has_any_table:
-            # Anchor: end of page markdown (append). Future refinement could map
-            # fitz image y-coordinate to a specific insertion line.
+        has_chart_narrative = CHART_NARRATIVE_MARKER in p.markdown
+        if has_image and not has_chart_narrative:
+            # Anchor: end of page markdown (append). The splice function
+            # ensures a separator newline if the last line lacks one.
             n_lines = len(p.markdown.splitlines())
             regions.append(ChartRegion(
                 page_no=p.page_no,
@@ -277,30 +284,47 @@ TABLE_VALIDATE_SYSTEM = (
 
 # ── Chart extraction prompt (Pass C1) ────────────────────────────────────────
 CHART_EXTRACT_SYSTEM = (
-    "You are a chart-and-graph-to-markdown extractor.\n"
-    "This page contains one or more charts or graphs. The embedded PDF text "
-    "does NOT carry the numeric data values — the values are encoded in the "
-    "chart image (bar heights, line points, pie slice angles, etc.).\n"
-    "Read every data point directly from the page image at 200 DPI.\n\n"
+    "You are an expert financial-chart analyst who converts chart images into "
+    "verbose, highly-accurate markdown analyses.\n"
+    "This page contains one or more charts or graphs. Your job is two-fold: "
+    "(a) extract every data point accurately, and (b) produce a long, "
+    "substantive analytical narrative a reader can stand on without seeing "
+    "the chart image.\n\n"
+
+    "━━ DATA SOURCING PRIORITY ━━\n\n"
+    "  1. GROUND TRUTH — if the embedded PDF text contains a data table that "
+    "matches the chart's axes / series (same years, same metrics), COPY those "
+    "values verbatim into your output table. Text values are authoritative.\n"
+    "  2. VISUAL READ — when embedded text does not contain the values, read "
+    "them directly from the chart image at 200 DPI by interpolating between "
+    "minor ticks. Preserve the y-axis unit exactly (e.g., '$B', '%').\n"
+    "  3. If a page has no charts at all (e.g., only a logo or headshot), "
+    "return an empty JSON array `[]` — do NOT invent a chart.\n\n"
 
     "━━ COMPLETENESS RULES (hard guarantees) ━━\n\n"
-    "  1. You MUST include every visible data point. Count the bars (or line "
+    "  4. You MUST include every visible data point. Count the bars (or line "
     "points, or pie slices) in the image and produce the same count of rows "
-    "(or pie entries) in the data table.\n"
-    "  2. You MUST include every series shown in the legend. Count the legend "
+    "in the data table.\n"
+    "  5. You MUST include every series shown in the legend. Count the legend "
     "entries and produce the same count of columns in the data table.\n"
-    "  3. You MUST include every x-axis tick that carries a data point.\n"
-    "  4. If you are uncertain about a value, still include the data point "
-    "with your best visual reading — never omit it.\n\n"
+    "  6. You MUST include every x-axis tick that carries a data point.\n"
+    "  7. If you are uncertain about a value, still include the data point "
+    "with your best reading — never omit it.\n"
+    "  8. Preserve x-axis formatting exactly as printed (dates, fiscal years, "
+    "quarters).\n\n"
 
-    "━━ ACCURACY RULES ━━\n\n"
-    "  5. Identify the minor tick increment on the y-axis (e.g., 50 units).\n"
-    "  6. Read each bar height or line point by interpolating between ticks. "
-    "If a value falls exactly on a tick, use that tick value.\n"
-    "  7. Preserve the axis unit. If y-axis label says '$ in billions', the "
-    "data table header must say '($B)' or similar.\n"
-    "  8. When x-axis values are dates / fiscal years, preserve the exact "
-    "formatting as printed on the axis.\n\n"
+    "━━ INSIGHT DEPTH (produce substantial analysis — aim for 15+ lines of "
+    "narrative per chart) ━━\n\n"
+    "  9. Every observation must cite a specific value from the data table.\n"
+    "  10. Compute and report: YoY / QoQ absolute deltas and percentage "
+    "changes, CAGR across the full period, per-series min and max with their "
+    "x-axis positions, peak-to-trough range, and variance among series.\n"
+    "  11. Use the page's surrounding prose (title, subtitle, caption, "
+    "footnotes in embedded text) as CONTEXT to interpret WHY the numbers "
+    "moved — name the likely business driver if the prose hints at one.\n"
+    "  12. Call out inflection points, anomalies, outliers, reversals, and "
+    "accelerations by x-axis position and magnitude.\n"
+    "  13. Do not hedge or repeat. Each sentence adds information.\n\n"
 
     "━━ OUTPUT FORMAT — one block per chart, in this exact order ━━\n\n"
     "  `### <chart title as printed on the page>`\n"
@@ -308,22 +332,35 @@ CHART_EXTRACT_SYSTEM = (
     "  `**X-axis:** <label> (<range>, <tick unit>)`\n"
     "  `**Y-axis:** <label> (<range>, <tick unit>)`\n"
     "  `**Series:** <comma-separated series names from the legend>`\n"
+    "  `**What this chart shows:** <1–2 sentence framing of the chart in its "
+    "page context>`\n"
     "  A markdown data table with one column for the x-axis label and one "
     "column per series. EVERY cell must be filled.\n"
-    "  `**Year-over-year changes:**` — per-series absolute and % delta list "
-    "(only when x-axis is time-like).\n"
+    "  `**Period-over-period changes:**` — per-series absolute and % deltas "
+    "as a bulleted list (YoY for annual, QoQ for quarterly, etc.).\n"
     "  `**CAGR (<start>–<end>):**` — per-series compound annual growth rate "
-    "(only when x-axis is time-like with >= 2 periods).\n"
+    "when the x-axis is time-like with >= 2 periods.\n"
     "  `**Min / Max:**` — per-series minimum and maximum with their x-axis "
-    "positions.\n"
-    "  `**Series comparison:**` — 1–3 sentences on key cross-series "
-    "relationships.\n"
-    "  `**Trend:**` — 2–4 sentence paragraph.\n"
-    "  `**Key observations:**` — 3–6 bullets.\n"
-    "  `**Anomalies / inflection points:**` — callouts or the literal text "
-    "'None observed.'\n\n"
+    "positions and the peak-to-trough range.\n"
+    "  `**Series comparison:**` — 3–5 sentences on cross-series "
+    "relationships (which leads, which lags, magnitude of gaps, correlation).\n"
+    "  `**Trend:**` — 4–6 sentence paragraph describing the shape of the "
+    "data across the x-axis, naming slope changes by x-axis position.\n"
+    "  `**Business implications:**` — 4–6 sentence paragraph interpreting "
+    "the data in business terms. Use the page's surrounding prose for "
+    "context; name likely drivers (product launches, market cycles, "
+    "macroeconomic factors) if the prose hints at them. Stay grounded — do "
+    "not invent facts the page does not support.\n"
+    "  `**Key observations:**` — 8–12 bullets, each a full sentence that "
+    "cites a specific data point (e.g., 'Revenue grew 53% from Q1 ($44.1B) "
+    "to Q3 ($67.5B) FY2026, the steepest quarterly acceleration in the "
+    "period.').\n"
+    "  `**Anomalies / inflection points:**` — 2–5 bullets pinpointing "
+    "sharp reversals, outliers, or structural breaks with their x-axis "
+    "position and magnitude; or the literal text 'None observed.'\n\n"
 
-    "Return ONLY valid JSON — no markdown fences, no explanation:\n"
+    "Return ONLY valid JSON — no markdown fences, no explanation. If no "
+    "chart is present on the page, return `[]`.\n"
     '[{"page_no": <int>, "chart_index": <int starting at 0>, '
     '"markdown": "<complete chart block>"}]'
 )
@@ -353,9 +390,14 @@ CHART_VERIFY_SYSTEM = (
     "the table, ADD the missing columns.\n\n"
 
     "━━ DERIVED METRIC REFRESH ━━\n\n"
-    "  6. After any corrections to the data table, recompute YoY changes, "
-    "CAGR, min/max, series comparison, trend, and key observations from the "
-    "corrected table. Replace any stale derived values.\n\n"
+    "  6. After any corrections to the data table, recompute all derived "
+    "sections from the corrected table: period-over-period changes, CAGR, "
+    "min/max, series comparison, trend, business implications, key "
+    "observations, and anomalies. Replace any stale derived values. Do NOT "
+    "shorten the narrative sections — preserve or expand their length.\n"
+    "  7. If the first-pass block uses the older section names 'Year-over-"
+    "year changes' or lacks 'What this chart shows' / 'Business implications'"
+    ", rename / add the sections to match the current format.\n\n"
 
     "Return ONLY valid JSON — no markdown fences, no explanation. "
     "Return the COMPLETE corrected block (same output format as the input):\n"
