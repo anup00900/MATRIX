@@ -248,3 +248,136 @@ def test_detect_chart_pages_image_no_trailing_newline():
     assert r.kind == "image_no_table"
     assert r.line_start == len(md.splitlines())
     assert r.line_end == r.line_start
+
+
+from app.parser.pdf import _splice_chart_blocks
+
+
+def test_splice_replaces_empty_cell_region_in_place():
+    md = (
+        "# FINANCIAL HIGHLIGHTS\n"
+        "\n"
+        "| Year | Revenue |\n"
+        "|---|---|\n"
+        "| FY2022 |  |\n"
+        "| FY2023 |  |\n"
+        "\n"
+        "Note: 10-K source.\n"
+    )
+    page = _make_page(3, md)
+    regions = _find_chart_regions(page)
+    assert len(regions) == 1
+    verified_blocks = {
+        (3, 0): (
+            "### Annual Revenue\n"
+            "**Chart type:** bar\n"
+            "\n"
+            "| Year | Revenue |\n"
+            "|---|---|\n"
+            "| FY2022 | 27 |\n"
+            "| FY2023 | 61 |\n"
+            "\n"
+            "**Trend:** up.\n"
+        ),
+    }
+    out_pages = _splice_chart_blocks([page], {3: regions}, verified_blocks)
+    new_md = out_pages[0].markdown
+    assert "# FINANCIAL HIGHLIGHTS" in new_md
+    assert "Note: 10-K source." in new_md
+    assert "### Annual Revenue" in new_md
+    assert "| FY2022 | 27 |" in new_md
+    # Original empty-cell lines are gone.
+    assert "| FY2022 |  |" not in new_md
+
+
+def test_splice_preserves_text_only_pages():
+    page = _make_page(1, "# Heading\n\nPure prose.\n")
+    out_pages = _splice_chart_blocks([page], {}, {})
+    assert out_pages[0].markdown == "# Heading\n\nPure prose.\n"
+
+
+def test_splice_multiple_regions_reverse_order_safe():
+    md = (
+        "| Year | A |\n"
+        "|---|---|\n"
+        "|  |  |\n"
+        "|  |  |\n"
+        "\n"
+        "Middle prose.\n"
+        "\n"
+        "| Year | B |\n"
+        "|---|---|\n"
+        "|  |  |\n"
+        "|  |  |\n"
+    )
+    page = _make_page(3, md)
+    regions = _find_chart_regions(page)
+    assert len(regions) == 2
+    verified_blocks = {
+        (3, 0): "### Chart A\n| Year | A |\n|---|---|\n| FY2022 | 10 |\n",
+        (3, 1): "### Chart B\n| Year | B |\n|---|---|\n| FY2022 | 20 |\n",
+    }
+    out = _splice_chart_blocks([page], {3: regions}, verified_blocks)
+    new_md = out[0].markdown
+    assert "### Chart A" in new_md
+    assert "### Chart B" in new_md
+    assert "Middle prose." in new_md
+    # Chart A appears before Chart B (document order preserved).
+    assert new_md.index("### Chart A") < new_md.index("Middle prose.")
+    assert new_md.index("Middle prose.") < new_md.index("### Chart B")
+
+
+def test_splice_image_no_table_inserts_at_end():
+    md = "# Selected Financial Chart\n\nCaption.\n\nSource: 10-K.\n"
+    page = _make_page(6, md)
+    region = ChartRegion(
+        page_no=6, chart_index=0,
+        line_start=len(md.splitlines()),
+        line_end=len(md.splitlines()),
+        original_text="",
+        kind="image_no_table",
+    )
+    verified_blocks = {(6, 0): "### Cumulative Return\n| Date | NVDA |\n|---|---|\n| 1/31/2021 | 100 |\n"}
+    out = _splice_chart_blocks([page], {6: [region]}, verified_blocks)
+    new_md = out[0].markdown
+    assert "# Selected Financial Chart" in new_md
+    assert "Source: 10-K." in new_md
+    assert "### Cumulative Return" in new_md
+    # Chart block appears after source footnote.
+    assert new_md.index("Source: 10-K.") < new_md.index("### Cumulative Return")
+
+
+def test_splice_missing_verified_block_leaves_region_untouched():
+    md = (
+        "| Year | A |\n"
+        "|---|---|\n"
+        "|  |  |\n"
+    )
+    page = _make_page(3, md)
+    regions = _find_chart_regions(page)
+    # No verified_blocks supplied for this region.
+    out = _splice_chart_blocks([page], {3: regions}, {})
+    assert out[0].markdown == md  # unchanged
+
+
+def test_splice_image_no_table_no_trailing_newline():
+    # Page markdown without a trailing newline — splice must ensure the
+    # preceding prose line gains a '\n' before the chart block is inserted.
+    md = "# Heading\n\nSome prose"  # note: no trailing \n
+    page = _make_page(6, md)
+    region = ChartRegion(
+        page_no=6, chart_index=0,
+        line_start=len(md.splitlines()),
+        line_end=len(md.splitlines()),
+        original_text="",
+        kind="image_no_table",
+    )
+    verified_blocks = {(6, 0): "### Chart\n| A |\n|---|\n| 1 |\n"}
+    out = _splice_chart_blocks([page], {6: [region]}, verified_blocks)
+    new_md = out[0].markdown
+    assert "Some prose" in new_md
+    assert "### Chart" in new_md
+    # The block must NOT concatenate onto "Some prose" without a newline.
+    assert "Some prose### Chart" not in new_md
+    # Specifically, prose ends with \n before the chart block.
+    assert "Some prose\n### Chart" in new_md

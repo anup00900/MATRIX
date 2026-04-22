@@ -165,6 +165,53 @@ def _detect_chart_pages(
     return out
 
 
+def _splice_chart_blocks(
+    pages: list[Page],
+    regions_by_page: dict[int, list[ChartRegion]],
+    verified_blocks: dict[tuple[int, int], str],
+) -> list[Page]:
+    """Replace each detected chart region with its verified block.
+
+    Regions missing from `verified_blocks` are left untouched (no regression).
+    Multiple regions on the same page are applied bottom-up so line indices stay valid.
+
+    When `line_start > 0` and the preceding line lacks a trailing newline, this
+    function adds one so the inserted chart block does not concatenate directly
+    onto the previous line. This matters for signature-2 insertions at end-of-page
+    when the source markdown did not end with a newline.
+    """
+    out: list[Page] = []
+    for p in pages:
+        regions = regions_by_page.get(p.page_no, [])
+        if not regions:
+            out.append(p)
+            continue
+
+        lines = p.markdown.splitlines(keepends=True)
+        # Sort descending by line_start so indices remain valid as we mutate.
+        for region in sorted(regions, key=lambda r: r.line_start, reverse=True):
+            block = verified_blocks.get((p.page_no, region.chart_index))
+            if block is None:
+                continue
+            block_lines = block.splitlines(keepends=True)
+            if block_lines and not block_lines[-1].endswith("\n"):
+                block_lines[-1] = block_lines[-1] + "\n"
+            # Ensure the line preceding the insertion point ends with '\n' so
+            # the inserted block doesn't concatenate onto existing prose.
+            if (
+                region.line_start > 0
+                and region.line_start <= len(lines)
+                and lines[region.line_start - 1]
+                and not lines[region.line_start - 1].endswith("\n")
+            ):
+                lines[region.line_start - 1] = lines[region.line_start - 1] + "\n"
+            lines[region.line_start:region.line_end] = block_lines
+
+        new_md = "".join(lines)
+        out.append(p.model_copy(update={"markdown": new_md}))
+    return out
+
+
 # ── Extraction prompt ────────────────────────────────────────────────────────
 BATCH_SYSTEM = (
     "You are a universal PDF page-to-markdown extractor. "
