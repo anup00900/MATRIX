@@ -1,5 +1,5 @@
 from __future__ import annotations
-import gzip, json, time
+import gzip, json, re, time
 from typing import Awaitable, Callable
 from ulid import ULID
 from ..llm import llm
@@ -7,10 +7,79 @@ from ..logging import log
 from ..parser.schema import StructuredDoc
 from ..retriever.types import Retriever, Evidence
 from ..settings import settings
+from ..wiki.schema import DocWiki
 from .decompose import decompose
 from .draft import draft as draft_step
 from .verify import verify as verify_step
 from .types import CellResult, Citation, Confidence
+
+
+def _relevant_snippet(chunk_text: str, prompt: str, answer: object, max_len: int = 500) -> str:
+    """For table chunks, return the header + matching row(s) instead of the first N chars."""
+    lines = chunk_text.splitlines()
+    table_lines = [l for l in lines if l.strip().startswith("|")]
+
+    # Not a table — plain text snippet
+    if len(table_lines) < 3:
+        return chunk_text[:max_len]
+
+    # Identify header (first non-separator | line)
+    sep_re = re.compile(r"^\s*\|[\s\-|]+\|\s*$")
+    header_row: str | None = None
+    for l in table_lines:
+        if not sep_re.match(l):
+            header_row = l
+            break
+
+    # Build search terms from prompt + answer
+    answer_str = str(answer).lower()
+    search_terms = {
+        t.lower() for src in (prompt, answer_str)
+        for t in re.split(r"\W+", src) if len(t) > 2
+    }
+
+    matching: list[str] = []
+    for l in table_lines:
+        if sep_re.match(l) or l == header_row:
+            continue
+        if any(term in l.lower() for term in search_terms):
+            matching.append(l)
+
+    if matching:
+        parts = ([header_row] if header_row else []) + matching[:4]
+        result = "\n".join(parts)
+        return result[:max_len]
+
+    return chunk_text[:max_len]
+
+
+def _full_page_context(doc: StructuredDoc, evidence: list[Evidence]) -> str | None:
+    """Include complete page markdown for pages referenced in evidence.
+    Critical for table-heavy docs where a single chunk might miss rows.
+    """
+    page_nos = sorted({e.page for e in evidence})
+    page_by_no = {p.page_no: p for p in doc.pages}
+    blocks: list[str] = []
+    for pno in page_nos[:6]:
+        p = page_by_no.get(pno)
+        if p and p.markdown.strip():
+            blocks.append(f"=== COMPLETE PAGE {pno} CONTENT ===\n{p.markdown}")
+    return "\n\n".join(blocks) if blocks else None
+
+
+def _query_wiki_facts(query: str, wiki: DocWiki | None) -> str | None:
+    """Return a text block of wiki metrics relevant to the query, for injection into draft."""
+    if not wiki or not wiki.key_metrics_table:
+        return None
+    q_terms = {t.lower() for t in query.split() if len(t) > 2}
+    hits: list[str] = []
+    for key, m in wiki.key_metrics_table.items():
+        label = f"{m.name} {key}".lower()
+        if any(t in label for t in q_terms):
+            unit = f" {m.unit}" if m.unit else ""
+            period = f" ({m.period})" if m.period else ""
+            hits.append(f"  [{m.chunk_id}] {m.name}: {m.value}{unit}{period}")
+    return "\n".join(hits) if hits else None
 
 StateCallback = Callable[[str, dict | None], Awaitable[None]]
 
@@ -23,6 +92,7 @@ async def run_cell(
     *, prompt: str, doc: StructuredDoc, retriever: Retriever,
     retriever_mode: str, shape_hint: str = "text",
     section_index: list[dict] | None = None,
+    wiki: DocWiki | None = None,
     on_state: StateCallback = _noop,
 ) -> CellResult:
     trace_id = str(ULID())
@@ -45,12 +115,19 @@ async def run_cell(
                 seen_ids.add(e.chunk_id)
                 evidence.append(e)
 
+    # Build wiki facts block for high-confidence numerical grounding
+    wiki_facts = _query_wiki_facts(prompt, wiki)
+    # Include full page markdown for retrieved pages (prevents table row truncation)
+    full_pages = _full_page_context(doc, evidence)
+
     await on_state("drafting", None)
     dr = await draft_step(
         prompt=prompt,
         sub_questions=plan.sub_questions,
         evidence=evidence,
         shape_hint=plan.expected_answer_shape,
+        wiki_facts=wiki_facts,
+        full_page_context=full_pages,
     )
 
     await on_state("verifying", None)
@@ -73,14 +150,19 @@ async def run_cell(
             sub_questions=plan.sub_questions,
             evidence=evidence + fresh,
             shape_hint=plan.expected_answer_shape,
+            wiki_facts=wiki_facts,
+            full_page_context=full_pages,
         )
         notes2 = await verify_step(draft=revised, retriever=retriever, doc=doc)
         revisions.append({
             "draft": revised.model_dump(),
             "verifier_notes": [n.model_dump() for n in notes2],
         })
-        confidence: Confidence = (
-            "high" if all(n.status == "supported" for n in notes2) else "low"
+        supported2 = sum(1 for n in notes2 if n.status == "supported")
+        confidence = (
+            "high" if supported2 == len(notes2)
+            else "medium" if supported2 >= len(notes2) * 0.6
+            else "low"
         )
         dr = revised
         notes = notes2
@@ -99,7 +181,7 @@ async def run_cell(
         seen_citations.add(cid)
         citations.append(Citation(
             chunk_id=cid, page=c.page,
-            snippet=c.text[:240],
+            snippet=_relevant_snippet(c.text, prompt, dr.answer),
             bboxes=[b.model_dump() for b in c.bboxes],
         ))
 

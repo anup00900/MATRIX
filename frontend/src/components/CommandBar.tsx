@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { Command } from "cmdk";
 import { api } from "../api/client";
 import { useGrid } from "../store/grid";
@@ -10,6 +11,7 @@ export function CommandBar({
   gridId: string | null;
   onOpenFlow: () => void;
 }) {
+  const fileRef = useRef<HTMLInputElement>(null);
   const refresh = async () => {
     if (!gridId) return;
     const v = await api.getGrid(gridId);
@@ -64,23 +66,7 @@ export function CommandBar({
               </Command.Item>
               <Command.Item
                 className="px-3 py-2 rounded data-[selected=true]:bg-[var(--color-surface-2)] cursor-pointer text-[13px]"
-                onSelect={() => {
-                  if (!wsId) return;
-                  const inp = document.createElement("input");
-                  inp.type = "file";
-                  inp.accept = "application/pdf";
-                  inp.multiple = true;
-                  inp.onchange = async () => {
-                    const files = Array.from(inp.files ?? []);
-                    for (const f of files) {
-                      const up = await api.uploadDocument(wsId, f);
-                      await api.addRow(gridId, up.document_id);
-                    }
-                    await refresh();
-                    onClose();
-                  };
-                  inp.click();
-                }}
+                onSelect={() => fileRef.current?.click()}
               >
                 Add documents…
               </Command.Item>
@@ -137,6 +123,23 @@ export function CommandBar({
             </Command.Group>
           </Command.List>
         </Command>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="application/pdf"
+          multiple
+          className="hidden"
+          onChange={async (e) => {
+            const files = Array.from(e.target.files ?? []);
+            if (!wsId || !gridId) return;
+            for (const f of files) {
+              const up = await api.uploadDocument(wsId, f);
+              await api.addRow(gridId, up.document_id);
+            }
+            await refresh();
+            onClose();
+          }}
+        />
       </div>
     </div>
   );

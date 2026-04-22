@@ -77,7 +77,7 @@ async def run_cell_job(*, cell_id: str) -> None:
         result = await run_cell(
             prompt=prompt, doc=parsed, retriever=retriever,
             retriever_mode=retriever_mode, shape_hint=shape_hint,
-            section_index=section_index, on_state=on_state,
+            section_index=section_index, wiki=wiki, on_state=on_state,
         )
 
         with Session(engine) as s2:

@@ -28,9 +28,12 @@ class Settings(BaseSettings):
     @property
     def traces_dir(self) -> Path: return self.storage_root / "traces"
     @property
+    def page_images_dir(self) -> Path: return self.storage_root / "page_images"
+    @property
     def db_path(self) -> Path: return self.storage_root / "db" / "matrix.sqlite"
 
 settings = Settings()
 for d in (settings.pdfs_dir, settings.parsed_dir, settings.wikis_dir,
-          settings.vectors_dir, settings.traces_dir, settings.db_path.parent):
+          settings.vectors_dir, settings.traces_dir, settings.page_images_dir,
+          settings.db_path.parent):
     d.mkdir(parents=True, exist_ok=True)

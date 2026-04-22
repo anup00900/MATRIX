@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Sparkles, Plus, X, Loader2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Sparkles, Plus, X, Loader2, Zap } from "lucide-react";
 import { api } from "../api/client";
 import { useGrid } from "../store/grid";
 import { cn } from "../lib/utils";
@@ -11,11 +11,52 @@ interface Suggestion {
   shape_hint: Shape;
 }
 
+const SHAPES: { value: Shape; label: string }[] = [
+  { value: "text",       label: "text" },
+  { value: "number",     label: "number" },
+  { value: "currency",   label: "currency" },
+  { value: "percentage", label: "%" },
+  { value: "list",       label: "list" },
+  { value: "table",      label: "table" },
+];
+
+const QUICK_STARTS: Suggestion[] = [
+  { prompt: "Financial summary — revenue, EBITDA, net income", shape_hint: "currency" },
+  { prompt: "Material risks and litigation exposure", shape_hint: "list" },
+  { prompt: "Year-over-year revenue growth", shape_hint: "percentage" },
+  { prompt: "Key management claims and strategic intent", shape_hint: "text" },
+];
+
 export function AskBar({ gridId }: { gridId: string | null }) {
   const [prompt, setPrompt] = useState("");
   const [loading, setLoading] = useState(false);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [err, setErr] = useState("");
+  const autoTriggered = useRef(false);
+
+  // select stable primitives — avoid new object per render
+  const hasRows = useGrid((s) => (s.view?.rows.length ?? 0) > 0);
+  const hasCols = useGrid((s) => (s.view?.columns.length ?? 0) > 0);
+
+  const showQuickStart = hasRows && !hasCols && suggestions.length === 0 && !loading;
+
+  // Auto-suggest when docs are loaded but no columns yet (once per session)
+  useEffect(() => {
+    if (!hasRows || hasCols || autoTriggered.current || !gridId) return;
+    autoTriggered.current = true;
+    (async () => {
+      setLoading(true);
+      try {
+        const res = await api.suggestColumns(gridId, "financial analysis, risk, and key metrics");
+        setSuggestions(res.columns as Suggestion[]);
+      } catch {
+        // silently fall back to quick-start chips
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [hasRows, hasCols, gridId]);
+
   const refresh = async () => {
     if (!gridId) return;
     const v = await api.getGrid(gridId);
@@ -26,6 +67,7 @@ export function AskBar({ gridId }: { gridId: string | null }) {
     if (!gridId || !prompt.trim()) return;
     setErr("");
     setLoading(true);
+    autoTriggered.current = true;
     try {
       const res = await api.suggestColumns(gridId, prompt);
       setSuggestions(res.columns as Suggestion[]);
@@ -40,6 +82,13 @@ export function AskBar({ gridId }: { gridId: string | null }) {
     if (!gridId) return;
     await api.addColumn(gridId, s.prompt, s.shape_hint);
     setSuggestions((arr) => arr.filter((x) => x !== s));
+    await refresh();
+  };
+
+  const addDirect = async (shape: Shape) => {
+    if (!gridId || !prompt.trim()) return;
+    await api.addColumn(gridId, prompt.trim(), shape);
+    setPrompt("");
     await refresh();
   };
 
@@ -67,7 +116,7 @@ export function AskBar({ gridId }: { gridId: string | null }) {
               suggest();
             }
           }}
-          placeholder='e.g. "give me a financial summary" or "what are the material risks"'
+          placeholder='e.g. "financial summary" or "material risks"'
           className={cn(
             "flex-1 min-w-0 bg-transparent outline-none text-[13px]",
             "placeholder:text-[var(--color-muted)]",
@@ -88,9 +137,62 @@ export function AskBar({ gridId }: { gridId: string | null }) {
         </button>
       </div>
 
+      {/* Inline type picker — add your typed text directly as a column */}
+      {prompt.trim() && (
+        <div className="mt-2 flex items-center gap-2 flex-wrap">
+          <span className="text-[10px] text-[var(--color-muted)] font-[var(--font-mono)] shrink-0">
+            add as →
+          </span>
+          {SHAPES.map((s) => (
+            <button
+              key={s.value}
+              onClick={() => addDirect(s.value)}
+              className={cn(
+                "px-2.5 py-0.5 rounded-full border text-[11px] font-[var(--font-mono)] transition",
+                "border-[var(--color-border)] text-[var(--color-muted)]",
+                "hover:border-[var(--color-accent-done)] hover:text-[var(--color-accent-done)]",
+                "hover:bg-[var(--color-accent-done)]/8",
+              )}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+      )}
+
       {err && (
         <div className="mt-2 text-[11px] text-[var(--color-accent-fail)] font-[var(--font-mono)]">
           {err}
+        </div>
+      )}
+
+      {/* Quick-start chips when docs loaded but no columns and no LLM suggestions yet */}
+      {showQuickStart && (
+        <div className="mt-3">
+          <div className="flex items-center gap-2 mb-2">
+            <Zap className="w-3 h-3 text-[var(--color-accent-streaming)]" />
+            <div className="text-[10px] uppercase tracking-wider text-[var(--color-muted)]">
+              Quick start — or type your own intent above
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {QUICK_STARTS.map((s, i) => (
+              <button
+                key={i}
+                onClick={() => addOne(s)}
+                className={cn(
+                  "flex items-center gap-2 pl-3 pr-2 py-1 rounded-full border",
+                  "border-[var(--color-border)] bg-[var(--color-canvas)]",
+                  "text-[12px] text-[var(--color-muted)] hover:border-[var(--color-accent-streaming)]",
+                  "hover:text-[var(--color-text)] transition",
+                )}
+              >
+                <span className="truncate max-w-[300px]">{s.prompt}</span>
+                <span className="text-[10px] font-[var(--font-mono)] shrink-0">{s.shape_hint}</span>
+                <Plus className="w-3 h-3 shrink-0 text-[var(--color-accent-done)]" />
+              </button>
+            ))}
+          </div>
         </div>
       )}
 

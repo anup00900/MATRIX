@@ -1,5 +1,5 @@
-import { Plus } from "lucide-react";
-import type { Session } from "../store/grid";
+import { Plus, X } from "lucide-react";
+import { useGrid, type Session } from "../store/grid";
 
 interface Props {
   sessions: Session[];
@@ -28,6 +28,7 @@ function groupByDate(sessions: Session[]): Array<{ label: string; items: Session
 
 export function SessionList({ sessions, activeGridId, onNewSession, onSwitchSession }: Props) {
   const grouped = groupByDate(sessions);
+  const removeSession = useGrid((s) => s.removeSession);
 
   return (
     <div className="flex flex-col gap-1 p-3">
@@ -53,17 +54,34 @@ export function SessionList({ sessions, activeGridId, onNewSession, onSwitchSess
             {label}
           </div>
           {items.map((s) => (
-            <button
+            <div
               key={s.gridId}
-              onClick={() => onSwitchSession(s)}
-              className={`w-full text-left px-3 py-2 rounded-lg text-[12px] transition truncate
+              className={`group flex items-center rounded-lg transition
                 ${s.gridId === activeGridId
-                  ? "bg-[var(--color-surface-2)] text-[var(--color-text)]"
-                  : "text-[var(--color-muted)] hover:bg-[var(--color-surface)] hover:text-[var(--color-text)]"
+                  ? "bg-[var(--color-surface-2)]"
+                  : "hover:bg-[var(--color-surface)]"
                 }`}
             >
-              {s.name}
-            </button>
+              <button
+                onClick={() => onSwitchSession(s)}
+                className={`flex-1 text-left px-3 py-2 text-[12px] truncate
+                  ${s.gridId === activeGridId
+                    ? "text-[var(--color-text)]"
+                    : "text-[var(--color-muted)] hover:text-[var(--color-text)]"
+                  }`}
+              >
+                {s.name}
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); removeSession(s.gridId); }}
+                className="opacity-0 group-hover:opacity-100 mr-1 p-1 rounded
+                           text-[var(--color-muted)] hover:text-[var(--color-accent-fail)]
+                           hover:bg-[var(--color-surface-2)] transition shrink-0"
+                title="Remove session"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
           ))}
         </div>
       ))}

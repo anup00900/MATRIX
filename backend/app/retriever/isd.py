@@ -75,8 +75,8 @@ class ISDRetriever:
     ) -> list[Evidence]:
         if not candidates:
             return []
-        chunks_block = "\n".join(
-            f"[{e.chunk_id}] {e.text[:400]}" for e in candidates
+        chunks_block = "\n\n".join(
+            f"[{e.chunk_id}] (p.{e.page})\n{e.text[:1500]}" for e in candidates
         )
         prompt = (
             "Score each chunk's relevance to the query on a STRICT 0.0-1.0 scale.\n"

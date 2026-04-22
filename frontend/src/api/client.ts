@@ -58,6 +58,11 @@ export const api = {
       body: JSON.stringify({ prompt, shape_hint }),
     }).then(j) as Promise<Column>,
 
+  deleteColumn: (columnId: string) =>
+    fetch(`${BASE}/columns/${columnId}`, { method: "DELETE" }).then(async (r) => {
+      if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+    }),
+
   editColumn: (columnId: string, body: { prompt?: string; shape_hint?: string }) =>
     fetch(`${BASE}/columns/${columnId}`, {
       method: "PATCH",
@@ -83,4 +88,22 @@ export const api = {
   streamUrl: (gridId: string) => `${BASE}/grids/${gridId}/stream`,
 
   pdfUrl: (documentId: string) => `${BASE}/pdf/${documentId}`,
+
+  pageImageUrl: (documentId: string, pageNo: number) =>
+    `${BASE}/documents/${documentId}/pages/${pageNo}/image`,
+
+  reingestDocument: (wsId: string, documentId: string) =>
+    fetch(`${BASE}/workspaces/${wsId}/documents/${documentId}/reingest`, {
+      method: "POST",
+    }).then(j) as Promise<{ ok: boolean }>,
+
+  getParsed: (documentId: string) =>
+    fetch(`${BASE}/documents/${documentId}/parsed`).then(j) as Promise<{
+      document_id: string;
+      filename: string;
+      n_pages: number;
+      n_chunks: number;
+      pages: Array<{ page_no: number; markdown: string; failed: boolean }>;
+      sections: Array<{ id: string; title: string; page_start: number; page_end: number }>;
+    }>,
 };

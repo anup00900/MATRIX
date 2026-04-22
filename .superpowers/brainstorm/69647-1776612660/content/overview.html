@@ -1,0 +1,760 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hebbia Matrix POC — How It Works</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #09090b;
+    color: #e4e4e7;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.6;
+    padding: 32px 40px 80px;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+  h1 { font-size: 28px; font-weight: 700; color: #f4f4f5; margin-bottom: 6px; }
+  h2 { font-size: 18px; font-weight: 600; color: #10b981; margin: 40px 0 14px; letter-spacing: 0.03em; text-transform: uppercase; font-size: 13px; }
+  h3 { font-size: 16px; font-weight: 600; color: #a1a1aa; margin-bottom: 8px; }
+  .tagline { color: #71717a; font-size: 15px; margin-bottom: 40px; }
+  .section { margin-bottom: 48px; }
+
+  /* ── MATRIX DIAGRAM ── */
+  .matrix-wrap { overflow-x: auto; }
+  table.matrix {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 13px;
+  }
+  table.matrix th, table.matrix td {
+    border: 1px solid #27272a;
+    padding: 10px 14px;
+    text-align: left;
+  }
+  table.matrix thead th {
+    background: #18181b;
+    color: #10b981;
+    font-weight: 600;
+  }
+  table.matrix .doc-col {
+    background: #18181b;
+    color: #a1a1aa;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  table.matrix .cell-done {
+    background: #0a1a12;
+    color: #34d399;
+  }
+  table.matrix .cell-stream {
+    background: #0c1520;
+    color: #38bdf8;
+    font-style: italic;
+  }
+  table.matrix .cell-empty {
+    background: #111113;
+    color: #3f3f46;
+  }
+  .cell-badge {
+    display: inline-block;
+    font-size: 10px;
+    background: #052e16;
+    color: #6ee7b7;
+    border-radius: 4px;
+    padding: 1px 6px;
+    margin-top: 4px;
+  }
+
+  /* ── PIPELINE BLOCK ── */
+  .pipeline {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    margin: 20px 0;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+  .pipeline-stage {
+    flex: 1;
+    min-width: 160px;
+    background: #18181b;
+    border: 1px solid #27272a;
+    border-radius: 10px;
+    padding: 18px 16px;
+    position: relative;
+  }
+  .pipeline-stage + .pipeline-stage {
+    margin-left: 36px;
+  }
+  .pipeline-stage::after {
+    content: '→';
+    position: absolute;
+    right: -26px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #3f3f46;
+    font-size: 22px;
+    z-index: 1;
+  }
+  .pipeline-stage:last-child::after { display: none; }
+  .stage-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 6px;
+  }
+  .stage-s1 .stage-label { color: #f59e0b; }
+  .stage-s2 .stage-label { color: #a78bfa; }
+  .stage-s3 .stage-label { color: #38bdf8; }
+  .stage-s4 .stage-label { color: #10b981; }
+  .stage-title { font-size: 15px; font-weight: 600; color: #f4f4f5; margin-bottom: 6px; }
+  .stage-sub { font-size: 12px; color: #71717a; }
+  .stage-badge {
+    display: inline-block;
+    font-size: 10px;
+    border-radius: 4px;
+    padding: 2px 7px;
+    margin-top: 8px;
+  }
+  .badge-offline { background: #1c1205; color: #f59e0b; border: 1px solid #78350f; }
+  .badge-online  { background: #052e16; color: #10b981; border: 1px solid #065f46; }
+
+  /* ── ISD LOOP ── */
+  .isd-loop {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+  .isd-step {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    padding: 16px 0;
+    border-left: 2px solid #27272a;
+    padding-left: 24px;
+    position: relative;
+  }
+  .isd-step::before {
+    content: '';
+    position: absolute;
+    left: -7px;
+    top: 22px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: 2px solid #27272a;
+    background: #09090b;
+  }
+  .isd-step.step-decompose::before { background: #f59e0b; border-color: #f59e0b; }
+  .isd-step.step-gather::before   { background: #38bdf8; border-color: #38bdf8; }
+  .isd-step.step-draft::before    { background: #a78bfa; border-color: #a78bfa; }
+  .isd-step.step-verify::before   { background: #fb923c; border-color: #fb923c; }
+  .isd-step.step-revise::before   { background: #f43f5e; border-color: #f43f5e; }
+  .isd-step.step-return::before   { background: #10b981; border-color: #10b981; }
+  .isd-step-num {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    min-width: 80px;
+    padding-top: 1px;
+  }
+  .isd-step.step-decompose .isd-step-num { color: #f59e0b; }
+  .isd-step.step-gather   .isd-step-num { color: #38bdf8; }
+  .isd-step.step-draft    .isd-step-num { color: #a78bfa; }
+  .isd-step.step-verify   .isd-step-num { color: #fb923c; }
+  .isd-step.step-revise   .isd-step-num { color: #f43f5e; }
+  .isd-step.step-return   .isd-step-num { color: #10b981; }
+  .isd-step-body { flex: 1; }
+  .isd-step-title { font-size: 14px; font-weight: 600; color: #f4f4f5; margin-bottom: 4px; }
+  .isd-step-desc  { font-size: 13px; color: #71717a; margin-bottom: 8px; }
+
+  /* ── PROMPT BOX ── */
+  .prompt-box {
+    background: #0f0f11;
+    border: 1px solid #1e1e22;
+    border-left: 3px solid #3f3f46;
+    border-radius: 6px;
+    padding: 12px 14px;
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 12px;
+    color: #a1a1aa;
+    white-space: pre-wrap;
+    margin-bottom: 6px;
+    line-height: 1.7;
+  }
+  .prompt-box .ph { color: #38bdf8; }   /* placeholder */
+  .prompt-box .key { color: #10b981; }  /* keyword/instruction */
+  .prompt-box .out { color: #f59e0b; }  /* output spec */
+  .prompt-box .com { color: #3f3f46; }  /* comment */
+
+  /* ── RETRIEVERS ── */
+  .retriever-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-top: 16px;
+  }
+  .retriever-card {
+    background: #18181b;
+    border: 1px solid #27272a;
+    border-radius: 10px;
+    padding: 18px;
+  }
+  .retriever-name { font-size: 15px; font-weight: 600; color: #f4f4f5; margin-bottom: 6px; }
+  .retriever-tag { font-size: 11px; color: #71717a; margin-bottom: 12px; }
+  .step-list { list-style: none; padding: 0; }
+  .step-list li {
+    padding: 5px 0;
+    font-size: 12px;
+    color: #a1a1aa;
+    border-bottom: 1px solid #1c1c1f;
+    display: flex;
+    gap: 8px;
+  }
+  .step-list li:last-child { border-bottom: none; }
+  .step-list .n { color: #3f3f46; min-width: 16px; font-weight: 600; }
+  .llm-flag { color: #a78bfa; font-size: 10px; font-weight: 700; }
+  .vec-flag { color: #38bdf8; font-size: 10px; font-weight: 700; }
+
+  /* ── WIKI ── */
+  .wiki-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-top: 14px;
+  }
+  .wiki-card {
+    background: #18181b;
+    border: 1px solid #27272a;
+    border-radius: 8px;
+    padding: 16px;
+  }
+  .wiki-card-title { font-size: 13px; font-weight: 600; color: #a78bfa; margin-bottom: 8px; }
+  .wiki-item { font-size: 12px; color: #71717a; padding: 3px 0; border-bottom: 1px solid #1c1c1f; }
+  .wiki-item:last-child { border-bottom: none; }
+  .wiki-item .field { color: #a1a1aa; }
+
+  /* ── FLOW ── */
+  .flow-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 10px 0;
+    flex-wrap: wrap;
+  }
+  .flow-box {
+    background: #18181b;
+    border: 1px solid #27272a;
+    border-radius: 6px;
+    padding: 8px 14px;
+    font-size: 12px;
+    color: #e4e4e7;
+    white-space: nowrap;
+  }
+  .flow-box.orange { border-color: #92400e; background: #1c1107; color: #fbbf24; }
+  .flow-box.purple { border-color: #4c1d95; background: #13091e; color: #c4b5fd; }
+  .flow-box.blue   { border-color: #1e3a5f; background: #0a1825; color: #7dd3fc; }
+  .flow-box.green  { border-color: #065f46; background: #052e16; color: #6ee7b7; }
+  .flow-box.red    { border-color: #881337; background: #1a0510; color: #fda4af; }
+  .flow-arr { color: #3f3f46; font-size: 18px; }
+
+  .divider { border: none; border-top: 1px solid #1c1c1f; margin: 40px 0; }
+  .note { background: #0f0f11; border: 1px solid #1e1e22; border-radius: 6px; padding: 12px 16px; font-size: 12px; color: #71717a; margin-top: 12px; }
+  .note strong { color: #a1a1aa; }
+</style>
+</head>
+<body>
+
+<h1>Hebbia Matrix POC — How It Works</h1>
+<p class="tagline">A plain-English walkthrough with block diagrams: what the matrix is, how the pipeline runs, what every prompt does.</p>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2>① What is "The Matrix"?</h2>
+<div class="section">
+  <p style="color:#a1a1aa; margin-bottom:16px;">
+    Imagine a spreadsheet where <strong style="color:#f4f4f5">rows = PDF documents</strong>
+    and <strong style="color:#f4f4f5">columns = questions</strong> you want answered.
+    Each cell gets filled automatically by AI, with the answer <em>and</em> the exact page + snippet it came from.
+  </p>
+  <div class="matrix-wrap">
+    <table class="matrix">
+      <thead>
+        <tr>
+          <th style="width:160px">Document</th>
+          <th>Revenue YoY change?</th>
+          <th>Main risk factors?</th>
+          <th>Who is the auditor?</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="doc-col">🟢 Apple 10-K FY23</td>
+          <td class="cell-done">+2.8% <span class="cell-badge">p.42 cited</span></td>
+          <td class="cell-done">Supply chain, macro headwinds <span class="cell-badge">p.18 cited</span></td>
+          <td class="cell-done">Ernst &amp; Young <span class="cell-badge">p.91 cited</span></td>
+        </tr>
+        <tr>
+          <td class="doc-col">🔵 NVIDIA 10-K FY24</td>
+          <td class="cell-stream">⟳ streaming…</td>
+          <td class="cell-empty">—</td>
+          <td class="cell-empty">—</td>
+        </tr>
+        <tr>
+          <td class="doc-col">⚪ Netflix 10-K FY23</td>
+          <td class="cell-empty">—</td>
+          <td class="cell-empty">—</td>
+          <td class="cell-empty">—</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="note" style="margin-top:14px;">
+    <strong>Why is this hard?</strong> A 10-K filing is 200+ pages. "Revenue YoY change" could be in the Income Statement, the MD&amp;A section, or a footnote. The system must <em>find the right passage</em>, <em>read it correctly</em>, and <em>show you where it came from</em> — for every cell, for every document.
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2>② The 4-Stage Pipeline</h2>
+<div class="section">
+  <p style="color:#a1a1aa; margin-bottom:20px;">
+    Stages 1–3 run <strong style="color:#f59e0b">offline</strong> (once per PDF, cached forever).
+    Stage 4 runs <strong style="color:#10b981">online</strong> (every time a cell is filled).
+  </p>
+
+  <div class="pipeline">
+    <div class="pipeline-stage stage-s1">
+      <div class="stage-label">Stage 1</div>
+      <div class="stage-title">INGEST</div>
+      <div class="stage-sub">PDF pages → images → GPT-4.1 Vision (batches of 5)<br>→ markdown → sections → chunks → StructuredDoc</div>
+      <span class="stage-badge badge-offline">Offline · Cached</span>
+    </div>
+    <div class="pipeline-stage stage-s2">
+      <div class="stage-label">Stage 2</div>
+      <div class="stage-title">WIKI BUILD</div>
+      <div class="stage-sub">Each section → AI-extracted knowledge<br>(entities, metrics, claims, Q&amp;A pairs)</div>
+      <span class="stage-badge badge-offline">Offline · Cached</span>
+    </div>
+    <div class="pipeline-stage stage-s3">
+      <div class="stage-label">Stage 3</div>
+      <div class="stage-title">INDEX</div>
+      <div class="stage-sub">Text chunks → embedding vectors<br>stored in LanceDB (local vector DB)</div>
+      <span class="stage-badge badge-offline">Offline · Cached</span>
+    </div>
+    <div class="pipeline-stage stage-s4">
+      <div class="stage-label">Stage 4</div>
+      <div class="stage-title">QUERY</div>
+      <div class="stage-sub">Per cell: decompose → retrieve → draft → verify → answer + citations</div>
+      <span class="stage-badge badge-online">Online · Per Cell</span>
+    </div>
+  </div>
+
+  <div class="note">
+    <strong>Content-addressable caching:</strong> Every PDF is identified by its SHA-256 hash. If you upload the same Apple 10-K twice, the wiki is built only once. Same for embeddings.
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2>③ Stage 1 — INGEST (What the PDF becomes)</h2>
+<div class="section">
+  <div class="flow-row">
+    <div class="flow-box orange">PDF file</div>
+    <div class="flow-arr">→</div>
+    <div class="flow-box">fitz renders pages<br><small style="color:#52525b">PNG @ 150 DPI · render only</small></div>
+    <div class="flow-arr">→</div>
+    <div class="flow-box">base64 encode · group into<br><small style="color:#52525b">batches of 5 pages</small></div>
+    <div class="flow-arr">→</div>
+    <div class="flow-box purple">GPT-4.1 Vision API<br><small style="color:#7c3aed">1 call per batch · 3 parallel</small></div>
+    <div class="flow-arr">→</div>
+    <div class="flow-box">markdown per page<br><small style="color:#52525b">headings + tables + text</small></div>
+  </div>
+  <div class="flow-row" style="margin-top:4px">
+    <div class="flow-arr" style="margin-left:8px; color:#1c1c1f">↓</div>
+  </div>
+  <div class="flow-row">
+    <div class="flow-box">Detect sections<br><small style="color:#52525b">from # / ## headings in markdown</small></div>
+    <div class="flow-arr">→</div>
+    <div class="flow-box">Split into ~500-token chunks<br><small style="color:#52525b">with 50-token overlap</small></div>
+    <div class="flow-arr">→</div>
+    <div class="flow-box green">StructuredDoc JSON</div>
+  </div>
+
+  <p style="color:#71717a; margin: 16px 0 10px;">Batch prompt sent to GPT-4.1 Vision (5 page images per call):</p>
+  <div class="prompt-box"><span class="com">// BATCH VISION PROMPT  (parser/pdf.py → BATCH_SYSTEM)</span>
+<span class="key">You are a PDF page-to-markdown converter for financial filings.</span>
+<span class="key">You will receive multiple consecutive page images, each labelled 'Page N:'.</span>
+<span class="key">For each page convert to clean GitHub-flavored markdown:</span>
+  preserve heading hierarchy (#, ##, ###)
+  render tables as markdown tables with aligned columns
+  keep all numeric values and units exactly as printed
+  preserve bullet/numbered lists
+<span class="key">Do NOT add commentary or invent content not visible in the images.</span>
+<span class="key">Return ONLY a JSON array, one object per page in input order:</span>
+<span class="out">[{"page_no": &lt;int&gt;, "markdown": "&lt;extracted markdown&gt;"}]</span>
+
+<span class="ph">Page 1: [image]   Page 2: [image]   Page 3: [image]   Page 4: [image]   Page 5: [image]</span></div>
+
+  <p style="color:#71717a; margin: 14px 0 10px;">After all batches complete, meta extracted from first 3 pages of markdown:</p>
+  <div class="prompt-box"><span class="com">// META EXTRACTION PROMPT  (parser/meta.py)</span>
+<span class="key">Extract the issuer name, filing type, and period_end date from the following filing header.</span>
+<span class="key">Return JSON fields: company, filing_type, period_end. Unknown fields → null.</span>
+
+<span class="ph">[markdown from pages 1–3]</span></div>
+
+  <div class="note">
+    <strong>No OCR.</strong> All extraction is done by GPT-4.1 Vision — scanned pages, complex tables, multi-column layouts all handled by the model. If a batch API call fails, affected pages are marked <code>failed=True</code> with empty markdown; no silent fallback.
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2>④ Stage 2 — WIKI BUILD (The "Pre-Digested Brain")</h2>
+<div class="section">
+  <p style="color:#a1a1aa; margin-bottom:14px;">
+    Instead of searching raw text at query time, the system <strong style="color:#f4f4f5">pre-reads every section</strong> and extracts structured knowledge.
+    Think of it as building a Wikipedia article about each section of the filing.
+  </p>
+
+  <div class="wiki-grid">
+    <div class="wiki-card">
+      <div class="wiki-card-title">Per-Section Prompt (run for every section)</div>
+      <div class="prompt-box" style="margin:0"><span class="key">You are analysing a section of a financial filing.</span>
+
+Section title: <span class="ph">{section.title}</span>
+Chunks: <span class="ph">[up to 12 chunks, 600 chars each]</span>
+
+<span class="key">Extract:</span>
+<span class="out">- summary</span>: 3-5 sentence summary
+<span class="out">- entities</span>: named entities + chunk refs
+<span class="out">- claims</span>: factual claims + evidence chunks
+<span class="out">- metrics</span>: numbers with unit/period/chunk
+<span class="out">- questions_answered</span>: what this section can answer</div>
+    </div>
+    <div class="wiki-card">
+      <div class="wiki-card-title">Doc-Level Rollup Prompt (one call per document)</div>
+      <div class="prompt-box" style="margin:0"><span class="key">Given these section summaries, write a</span>
+<span class="key">3-5 sentence overview, then return JSON:</span>
+
+<span class="out">- overview</span>: document-level summary
+<span class="out">- key_metrics_table</span>: top 3-6 metrics
+  (revenue, net_income, operating_margin…)
+
+<span class="ph">[section summaries listed here]</span></div>
+    </div>
+  </div>
+
+  <p style="color:#71717a; margin-top: 14px;">
+    The wiki is cached as <code style="color:#a1a1aa">storage/wikis/{sha256}__v1.json.gz</code>.
+    On schema change, it is lazily rebuilt — old files kept for reproducibility.
+  </p>
+</div>
+
+<hr class="divider">
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2>⑤ Stage 4 — ISD LOOP (How Each Cell Gets Filled)</h2>
+<div class="section">
+  <p style="color:#a1a1aa; margin-bottom: 20px;">
+    "ISD" = <strong style="color:#f4f4f5">Iterative Source Decomposition</strong>.
+    Instead of one big search, the system <em>plans</em>, <em>gathers evidence</em>, <em>writes a draft</em>, then <em>fact-checks itself</em>.
+  </p>
+
+  <div class="isd-loop">
+
+    <div class="isd-step step-decompose">
+      <div class="isd-step-num">1 · Decompose</div>
+      <div class="isd-step-body">
+        <div class="isd-step-title">Break the question into sub-questions</div>
+        <div class="isd-step-desc">The AI reads the column prompt + the document's section index and makes a retrieval plan.</div>
+        <div class="prompt-box"><span class="key">You are preparing an information-extraction plan for one cell of a matrix.</span>
+Document: <span class="ph">{doc.meta}</span>
+Available sections: <span class="ph">[section index from wiki]</span>
+User prompt: <span class="ph">"Revenue YoY change?"</span>
+
+<span class="key">Return JSON:</span>
+<span class="out">- sub_questions</span>: 2-4 specific retrieval queries
+<span class="out">- expected_answer_shape</span>: text | number | currency | percentage | list | table
+<span class="out">- target_sections</span>: up to 3 section ids most likely to contain the answer</div>
+      </div>
+    </div>
+
+    <div class="isd-step step-gather">
+      <div class="isd-step-num">2 · Gather</div>
+      <div class="isd-step-body">
+        <div class="isd-step-title">Retrieve evidence for each sub-question</div>
+        <div class="isd-step-desc">Each sub-question is sent to the retriever (see below). Results are deduplicated by chunk ID.</div>
+        <div class="flow-row" style="margin:0">
+          <div class="flow-box blue">sub_question 1</div>
+          <div class="flow-arr">→</div>
+          <div class="flow-box">retriever.retrieve(q, doc, k=6)</div>
+          <div class="flow-arr">→</div>
+          <div class="flow-box green">6 evidence chunks</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="isd-step step-draft">
+      <div class="isd-step-num">3 · Draft</div>
+      <div class="isd-step-body">
+        <div class="isd-step-title">Write the answer from evidence only</div>
+        <div class="isd-step-desc">Hard rule: every factual claim must cite at least one chunk ID. No hallucination allowed.</div>
+        <div class="prompt-box"><span class="key">Answer the user prompt using ONLY the evidence below.</span>
+<span class="key">Every factual claim must cite at least one chunk id.</span>
+Return JSON: <span class="out">{ answer, citations: [chunk_ids], reasoning_trace: [...] }</span>
+
+Prompt: <span class="ph">"Revenue YoY change?"</span>
+Sub-questions: <span class="ph">[...]</span>
+Evidence:
+<span class="ph">[c-42] (p.42, src=wiki.metric) Revenue was $383,285M in FY2023 vs $394,328M in FY2022...</span>
+<span class="ph">[c-43] (p.43, src=chunk.vector) The decrease was primarily driven by lower iPhone sales...</span></div>
+      </div>
+    </div>
+
+    <div class="isd-step step-verify">
+      <div class="isd-step-num">4 · Verify</div>
+      <div class="isd-step-body">
+        <div class="isd-step-title">Fact-check each claim in the draft</div>
+        <div class="isd-step-desc">For each sentence in the reasoning trace, re-retrieves 3 chunks and asks the AI: "does this evidence actually support this claim?"</div>
+        <div class="prompt-box"><span class="key">Decide whether the following evidence supports, contradicts,</span>
+<span class="key">or does not contain the claim.</span>
+
+Claim: <span class="ph">"Revenue grew -2.8% YoY to $383B"</span>
+Evidence: <span class="ph">[3 re-retrieved chunks]</span>
+
+Return JSON: <span class="out">{ claim, status: "supported"|"contradicted"|"missing", note }</span></div>
+      </div>
+    </div>
+
+    <div class="isd-step step-revise">
+      <div class="isd-step-num">5 · Revise (if needed)</div>
+      <div class="isd-step-body">
+        <div class="isd-step-title">Fix contradicted or unsupported claims</div>
+        <div class="isd-step-desc">If any claim is contradicted or missing, fetch fresh evidence and re-draft with the verifier's notes. Done once max — then confidence = "low".</div>
+        <div class="flow-row" style="margin:0">
+          <div class="flow-box red">contradicted claims</div>
+          <div class="flow-arr">→</div>
+          <div class="flow-box">fresh evidence + verifier notes</div>
+          <div class="flow-arr">→</div>
+          <div class="flow-box">re-draft</div>
+          <div class="flow-arr">→</div>
+          <div class="flow-box orange">re-verify</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="isd-step step-return">
+      <div class="isd-step-num">6 · Return</div>
+      <div class="isd-step-body">
+        <div class="isd-step-title">Cell result stored + streamed to browser</div>
+        <div class="isd-step-desc">The final result includes everything — answer, citations with bboxes, full reasoning trace, confidence, tokens used, latency.</div>
+        <div class="flow-row" style="margin:0">
+          <div class="flow-box green">answer</div>
+          <div class="flow-arr">+</div>
+          <div class="flow-box green">citations (chunk_id, page, snippet, bbox)</div>
+          <div class="flow-arr">+</div>
+          <div class="flow-box green">confidence: high | medium | low</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2>⑥ The 3 Retriever Modes (How Evidence is Found)</h2>
+<div class="section">
+  <p style="color:#a1a1aa; margin-bottom: 6px;">
+    All three modes implement the same interface. You can switch between them in the UI — the benchmark compares their quality.
+  </p>
+  <div class="retriever-grid">
+    <div class="retriever-card">
+      <div class="retriever-name">🔵 Naive</div>
+      <div class="retriever-tag">Simple vector similarity</div>
+      <ul class="step-list">
+        <li><span class="n">1</span> Embed the query into a vector</li>
+        <li><span class="n">2</span> <span class="vec-flag">VEC</span> Search LanceDB for nearest k chunks</li>
+        <li><span class="n">3</span> Return top-k by cosine distance</li>
+      </ul>
+      <div class="note" style="margin-top:12px; font-size:11px;">Fast, cheap. But a query like "revenue" might miss chunks that say "net sales" or "total income".</div>
+    </div>
+    <div class="retriever-card">
+      <div class="retriever-name">🟡 ISD Retriever</div>
+      <div class="retriever-tag">Decompose → vector → LLM rerank</div>
+      <ul class="step-list">
+        <li><span class="n">1</span> <span class="llm-flag">LLM</span> Decompose query into 2-5 sub-queries + target sections</li>
+        <li><span class="n">2</span> <span class="vec-flag">VEC</span> Vector search per sub-query, boost target sections</li>
+        <li><span class="n">3</span> Deduplicate, take top 30 candidates</li>
+        <li><span class="n">4</span> <span class="llm-flag">LLM</span> Attention rerank: score each chunk 0.0–1.0</li>
+        <li><span class="n">5</span> Return top-k by attention score</li>
+      </ul>
+    </div>
+    <div class="retriever-card">
+      <div class="retriever-name">🟢 Wiki Retriever</div>
+      <div class="retriever-tag">Structured knowledge first</div>
+      <ul class="step-list">
+        <li><span class="n">1</span> Search pre-built wiki metrics &amp; claims</li>
+        <li><span class="n">2</span> Find relevant section by questions_answered index</li>
+        <li><span class="n">3</span> Drill into that section's chunks</li>
+        <li><span class="n">4</span> <span class="vec-flag">VEC</span> Vector fallback for anything not found above</li>
+      </ul>
+      <div class="note" style="margin-top:12px; font-size:11px;">Highest quality. The wiki already extracted "Revenue = $383B (p.42 c-42)" — no need to search at all.</div>
+    </div>
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2>⑦ ISD Retriever — Its Own Sub-Prompts</h2>
+<div class="section">
+  <p style="color:#a1a1aa; margin-bottom:14px;">
+    The ISD <em>retriever</em> (used inside the Gather step) is itself AI-powered, with 2 LLM calls:
+  </p>
+
+  <h3 style="color:#38bdf8; margin-bottom:8px;">Decompose prompt (inside the retriever)</h3>
+  <div class="prompt-box"><span class="key">You are planning retrieval over a long document.</span>
+<span class="key">Given a user intent and the document's section index, return:</span>
+<span class="out">- sub_queries</span>: 2-5 specific retrieval queries that together cover the intent
+<span class="out">- target_section_ids</span>: up to 5 section ids most likely to contain the answer
+
+Section index: <span class="ph">[s-1] Risk Factors  [s-7] Results of Operations  ...</span>
+Intent: <span class="ph">"Revenue YoY change"</span></div>
+
+  <h3 style="color:#38bdf8; margin: 16px 0 8px;">Attention rerank prompt</h3>
+  <div class="prompt-box"><span class="key">Score each chunk's relevance to the query on a STRICT 0.0-1.0 scale.</span>
+  1.0 = chunk directly answers the query
+  0.7 = strongly relevant, partial answer
+  0.4 = tangentially related context
+  0.0 = irrelevant
+<span class="key">Return JSON</span> <span class="out">{ scores: [{ chunk_id, score }] }</span>. Score every chunk.
+
+Query: <span class="ph">"Revenue YoY change"</span>
+Chunks:
+<span class="ph">[c-42] Total net sales were $383,285 million...
+[c-43] iPhone net sales decreased by $1,636 million...
+[c-18] The company faces risks from global economy...</span></div>
+</div>
+
+<hr class="divider">
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2>⑧ Complete Prompt Inventory</h2>
+<div class="section">
+  <p style="color:#a1a1aa; margin-bottom:14px;">Every LLM call in the system, in order:</p>
+
+  <table style="width:100%; border-collapse:collapse; font-size:12px;">
+    <thead>
+      <tr style="background:#18181b; text-align:left;">
+        <th style="padding:10px 14px; border:1px solid #27272a; color:#10b981;">Stage</th>
+        <th style="padding:10px 14px; border:1px solid #27272a; color:#10b981;">File</th>
+        <th style="padding:10px 14px; border:1px solid #27272a; color:#10b981;">Purpose</th>
+        <th style="padding:10px 14px; border:1px solid #27272a; color:#10b981;">Output Schema</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td style="padding:9px 14px; border:1px solid #27272a; color:#f59e0b;">INGEST</td>
+        <td style="padding:9px 14px; border:1px solid #27272a; color:#71717a; font-family:monospace;">parser/meta.py</td>
+        <td style="padding:9px 14px; border:1px solid #27272a; color:#a1a1aa;">Extract company, filing type, period from first pages</td>
+        <td style="padding:9px 14px; border:1px solid #27272a; color:#71717a; font-family:monospace;">{ company, filing_type, period_end }</td>
+      </tr>
+      <tr>
+        <td style="padding:9px 14px; border:1px solid #27272a; color:#a78bfa;">WIKI</td>
+        <td style="padding:9px 14px; border:1px solid #27272a; color:#71717a; font-family:monospace;">wiki/builder.py</td>
+        <td style="padding:9px 14px; border:1px solid #27272a; color:#a1a1aa;">Extract structured knowledge per section (×N sections)</td>
+        <td style="padding:9px 14px; border:1px solid #27272a; color:#71717a; font-family:monospace;">SectionWikiEntry</td>
+      </tr>
+      <tr>
+        <td style="padding:9px 14px; border:1px solid #27272a; color:#a78bfa;">WIKI</td>
+        <td style="padding:9px 14px; border:1px solid #27272a; color:#71717a; font-family:monospace;">wiki/builder.py</td>
+        <td style="padding:9px 14px; border:1px solid #27272a; color:#a1a1aa;">Document-level rollup: overview + key metrics table</td>
+        <td style="padding:9px 14px; border:1px solid #27272a; color:#71717a; font-family:monospace;">DocWikiRollup</td>
+      </tr>
+      <tr>
+        <td style="padding:9px 14px; border:1px solid #38bdf8; color:#38bdf8;">RETRIEVER</td>
+        <td style="padding:9px 14px; border:1px solid #27272a; color:#71717a; font-family:monospace;">retriever/isd.py</td>
+        <td style="padding:9px 14px; border:1px solid #27272a; color:#a1a1aa;">Decompose query into sub-queries + target sections</td>
+        <td style="padding:9px 14px; border:1px solid #27272a; color:#71717a; font-family:monospace;">DecompPlan</td>
+      </tr>
+      <tr>
+        <td style="padding:9px 14px; border:1px solid #38bdf8; color:#38bdf8;">RETRIEVER</td>
+        <td style="padding:9px 14px; border:1px solid #27272a; color:#71717a; font-family:monospace;">retriever/isd.py</td>
+        <td style="padding:9px 14px; border:1px solid #27272a; color:#a1a1aa;">Score 30 candidate chunks by attention (0.0–1.0)</td>
+        <td style="padding:9px 14px; border:1px solid #27272a; color:#71717a; font-family:monospace;">RerankResult</td>
+      </tr>
+      <tr>
+        <td style="padding:9px 14px; border:1px solid #10b981; color:#10b981;">CELL</td>
+        <td style="padding:9px 14px; border:1px solid #27272a; color:#71717a; font-family:monospace;">agent/decompose.py</td>
+        <td style="padding:9px 14px; border:1px solid #27272a; color:#a1a1aa;">Break column prompt into sub-questions + target sections</td>
+        <td style="padding:9px 14px; border:1px solid #27272a; color:#71717a; font-family:monospace;">DecompositionPlan</td>
+      </tr>
+      <tr>
+        <td style="padding:9px 14px; border:1px solid #10b981; color:#10b981;">CELL</td>
+        <td style="padding:9px 14px; border:1px solid #27272a; color:#71717a; font-family:monospace;">agent/draft.py</td>
+        <td style="padding:9px 14px; border:1px solid #27272a; color:#a1a1aa;">Write answer from evidence, cite every claim</td>
+        <td style="padding:9px 14px; border:1px solid #27272a; color:#71717a; font-family:monospace;">DraftAnswer</td>
+      </tr>
+      <tr>
+        <td style="padding:9px 14px; border:1px solid #10b981; color:#10b981;">CELL</td>
+        <td style="padding:9px 14px; border:1px solid #27272a; color:#71717a; font-family:monospace;">agent/verify.py</td>
+        <td style="padding:9px 14px; border:1px solid #27272a; color:#a1a1aa;">Check each claim: supported / contradicted / missing (×claims)</td>
+        <td style="padding:9px 14px; border:1px solid #27272a; color:#71717a; font-family:monospace;">VerifierNote</td>
+      </tr>
+      <tr>
+        <td style="padding:9px 14px; border:1px solid #fb923c; color:#fb923c;">SYNTH</td>
+        <td style="padding:9px 14px; border:1px solid #27272a; color:#71717a; font-family:monospace;">services/synthesize.py</td>
+        <td style="padding:9px 14px; border:1px solid #27272a; color:#a1a1aa;">Cross-row aggregation ("summarise risks across all issuers")</td>
+        <td style="padding:9px 14px; border:1px solid #27272a; color:#71717a; font-family:monospace;">plain text + [row×col] citations</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<hr class="divider">
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2>⑨ End-to-End Flow (One Cell, Simplified)</h2>
+<div class="section">
+  <div class="flow-row">
+    <div class="flow-box orange">User types prompt<br><small>"Revenue YoY?"</small></div>
+    <div class="flow-arr">→</div>
+    <div class="flow-box purple">DECOMPOSE<br><small>→ 3 sub-questions</small></div>
+    <div class="flow-arr">→</div>
+    <div class="flow-box blue">GATHER<br><small>→ ~18 evidence chunks</small></div>
+  </div>
+  <div class="flow-row" style="margin-left:60px; margin-top:0;">
+    <div class="flow-arr" style="transform:rotate(90deg)">→</div>
+  </div>
+  <div class="flow-row" style="flex-direction:row-reverse;">
+    <div class="flow-box orange">CELL RESULT<br><small>answer + citations + trace</small></div>
+    <div class="flow-arr">←</div>
+    <div class="flow-box red">VERIFY / REVISE<br><small>fact-check claims</small></div>
+    <div class="flow-arr">←</div>
+    <div class="flow-box purple">DRAFT<br><small>→ answer + citations</small></div>
+  </div>
+  <div class="flow-row" style="margin-top:16px;">
+    <div class="flow-arr">↓</div>
+  </div>
+  <div class="flow-row">
+    <div class="flow-box green">SQLite stores result</div>
+    <div class="flow-arr">→</div>
+    <div class="flow-box green">SSE streams to browser</div>
+    <div class="flow-arr">→</div>
+    <div class="flow-box green">Cell shows answer + page citation</div>
+  </div>
+</div>
+
+<div style="height:40px"></div>
+</body>
+</html>

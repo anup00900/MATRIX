@@ -45,6 +45,18 @@ class DocWikiRollup(BaseModel):
     key_metrics_table: dict[str, Metric] = {}
 
 
+class DocWikiOverview(BaseModel):
+    """Minimal rollup — just the overview paragraph."""
+    overview: str
+
+
+class SectionWikiLean(BaseModel):
+    """Lean extraction schema — no entities/claims to keep output token count small."""
+    summary: str
+    metrics: list[Metric] = []
+    questions_answered: list[str] = []
+
+
 class DocWiki(BaseModel):
     doc_id: str
     wiki_schema_version: int = WIKI_SCHEMA_VERSION

@@ -60,9 +60,10 @@ function makeLabel(text: string, sub: string, scale = 1.0): THREE.Sprite {
 interface Props {
   documentId: string;
   onClose: () => void;
+  variant?: "overlay" | "panel";
 }
 
-export function IngestFlowOverlay({ documentId, onClose }: Props) {
+export function IngestFlowOverlay({ documentId, onClose, variant = "overlay" }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<{
     cleanup: () => void;
@@ -76,12 +77,13 @@ export function IngestFlowOverlay({ documentId, onClose }: Props) {
   const activeSet = useMemo(() => new Set(ACTIVE_STAGES[stage]), [stage]);
 
   useEffect(() => {
+    if (variant !== "overlay") return;
     const h = (e: KeyboardEvent) => {
       if (e.key === "Escape") { e.stopPropagation(); onClose(); }
     };
     window.addEventListener("keydown", h, true);
     return () => window.removeEventListener("keydown", h, true);
-  }, [onClose]);
+  }, [onClose, variant]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -270,46 +272,50 @@ export function IngestFlowOverlay({ documentId, onClose }: Props) {
   }, [activeSet, stage, page, of]);
 
   return (
-    <div className="fixed inset-0 z-50 bg-[var(--color-canvas)]">
-      <div className="h-11 flex items-center justify-between px-4 border-b border-[var(--color-border)] bg-[var(--color-canvas)]/80 backdrop-blur">
-        <div className="flex items-center gap-3 text-[12px]">
-          <div className="font-[var(--font-ui)]">◇ Ingest · 3D</div>
-          <div className="h-3 w-px bg-[var(--color-border)]" />
-          <div className="text-[var(--color-muted)] font-[var(--font-mono)]">
-            {ingest?.filename ?? documentId.slice(0, 10)}
+    <div className={variant === "panel" ? "h-full w-full relative" : "fixed inset-0 z-50 bg-[var(--color-canvas)]"}>
+      {variant === "overlay" && (
+        <div className="h-11 flex items-center justify-between px-4 border-b border-[var(--color-border)] bg-[var(--color-canvas)]/80 backdrop-blur">
+          <div className="flex items-center gap-3 text-[12px]">
+            <div className="font-[var(--font-ui)]">◇ Ingest · 3D</div>
+            <div className="h-3 w-px bg-[var(--color-border)]" />
+            <div className="text-[var(--color-muted)] font-[var(--font-mono)]">
+              {ingest?.filename ?? documentId.slice(0, 10)}
+            </div>
+            <div className="h-3 w-px bg-[var(--color-border)]" />
+            <div className="flex items-center gap-1.5 text-[var(--color-muted)] font-[var(--font-mono)]">
+              <span className={[
+                "h-1.5 w-1.5 rounded-full",
+                stage === "ready" ? "bg-[var(--color-accent-done)]"
+                  : stage === "failed" ? "bg-[var(--color-accent-fail)]"
+                  : "bg-[var(--color-accent-streaming)] animate-pulse",
+              ].join(" ")}></span>
+              {stage}{page && of ? ` · page ${page}/${of}` : ""}
+            </div>
           </div>
-          <div className="h-3 w-px bg-[var(--color-border)]" />
-          <div className="flex items-center gap-1.5 text-[var(--color-muted)] font-[var(--font-mono)]">
-            <span className={[
-              "h-1.5 w-1.5 rounded-full",
-              stage === "ready" ? "bg-[var(--color-accent-done)]"
-                : stage === "failed" ? "bg-[var(--color-accent-fail)]"
-                : "bg-[var(--color-accent-streaming)] animate-pulse",
-            ].join(" ")}></span>
-            {stage}{page && of ? ` · page ${page}/${of}` : ""}
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded border border-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)]"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
+      <div ref={containerRef} className={variant === "panel" ? "absolute inset-0" : "absolute inset-0 top-11"} />
+
+      {variant === "overlay" && (
+        <div className="absolute left-5 bottom-5 p-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)]/75 backdrop-blur text-[12px] max-w-xs leading-snug">
+          <div className="text-[10px] uppercase tracking-wider text-[var(--color-muted)] mb-1.5">Ingest pipeline</div>
+          <div className="space-y-1">
+            <div>Upload · pdf bytes arrive on server</div>
+            <div>Render · each page rasterised to PNG</div>
+            <div>Vision · gpt 4.1 returns markdown per page</div>
+            <div>Index · chunks embedded into LanceDB</div>
+            <div>Wiki · gpt 4.1 extracts metrics + claims</div>
+            <div>Ready · row is queryable</div>
           </div>
         </div>
-        <button
-          onClick={onClose}
-          className="p-1.5 rounded border border-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)]"
-        >
-          <X className="w-3.5 h-3.5" />
-        </button>
-      </div>
-
-      <div ref={containerRef} className="absolute inset-0 top-11" />
-
-      <div className="absolute left-5 bottom-5 p-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)]/75 backdrop-blur text-[12px] max-w-xs leading-snug">
-        <div className="text-[10px] uppercase tracking-wider text-[var(--color-muted)] mb-1.5">Ingest pipeline</div>
-        <div className="space-y-1">
-          <div>Upload · pdf bytes arrive on server</div>
-          <div>Render · each page rasterised to PNG</div>
-          <div>Vision · gpt 4.1 returns markdown per page</div>
-          <div>Index · chunks embedded into LanceDB</div>
-          <div>Wiki · gpt 4.1 extracts metrics + claims</div>
-          <div>Ready · row is queryable</div>
-        </div>
-      </div>
+      )}
     </div>
   );
 }

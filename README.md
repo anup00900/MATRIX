@@ -250,6 +250,15 @@ erDiagram
 
 ## Setup
 
+  Terminal 1 — Backend:
+  cd "/Users/anup.roy/Downloads/Hebbia POC" && make backend
+
+  Terminal 2 — Frontend (needs Node 22, make frontend won't work due to Node 18):
+  cd "/Users/anup.roy/Downloads/Hebbia POC/frontend" && PATH="$HOME/.local/node22/bin:$PATH"
+  pnpm dev
+
+  Then open http://localhost:5173
+  
 ```bash
 cp .env.example .env       # set AZURE_OPENAI_API_KEY
 cd backend && python3 -m venv .venv && . .venv/bin/activate && pip install -e ".[dev]"

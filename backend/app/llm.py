@@ -80,6 +80,40 @@ class LLM:
                 await asyncio.sleep(backoff); backoff *= 2
         raise LLMError("vision_chat exhausted retries")
 
+    async def vision_batch(self, *, pages: list[tuple[int, str]],
+                           system: str, max_tokens: int = 12000,
+                           temperature: float = 0.0) -> str:
+        """Send multiple page images in one API call.
+        pages = [(page_no, b64_png), ...]. Returns raw response string (caller parses JSON).
+        """
+        content: list[dict] = []
+        for page_no, b64 in pages:
+            content.append({"type": "text", "text": f"Page {page_no}:"})
+            content.append({"type": "image_url",
+                            "image_url": {"url": f"data:image/png;base64,{b64}"}})
+        backoff = 1.0
+        for attempt in range(5):
+            try:
+                resp = await self.client.chat.completions.create(
+                    model=self.deployment,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    messages=[
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": content},
+                    ],
+                )
+                if resp.usage: self._cost_tokens += resp.usage.total_tokens
+                return resp.choices[0].message.content or ""
+            except RateLimitError as e:
+                retry_after = getattr(e, "retry_after", None) or backoff
+                log.warning("llm.vision_batch.rate_limited", retry_after=retry_after)
+                await asyncio.sleep(retry_after); backoff *= 2
+            except APIError as e:
+                if attempt == 4: raise LLMError(str(e)) from e
+                await asyncio.sleep(backoff); backoff *= 2
+        raise LLMError("vision_batch exhausted retries")
+
     async def structured(self, *, messages: list[dict], schema: Type[T],
                          temperature: float = 0.0, max_tokens: int = 2000) -> T:
         schema_hint = json.dumps(schema.model_json_schema())

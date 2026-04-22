@@ -1,6 +1,7 @@
-import { FileText, Eye, Database, BookOpen, CheckCircle2, AlertTriangle, Sparkles } from "lucide-react";
+import { FileText, Eye, Database, BookOpen, CheckCircle2, AlertTriangle, Sparkles, RefreshCw } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useGrid, type IngestStage } from "../store/grid";
+import { api } from "../api/client";
 
 const STAGE_ORDER: IngestStage[] = ["queued", "parsing", "indexing", "wiki", "ready"];
 
@@ -24,15 +25,29 @@ const STAGE_ICON: Record<IngestStage, typeof FileText> = {
 
 interface Props {
   onOpen3D?: (documentId: string) => void;
+  onViewParsed?: (documentId: string) => void;
 }
 
-export function IngestProgress({ onOpen3D }: Props = {}) {
+export function IngestProgress({ onOpen3D, onViewParsed }: Props = {}) {
   const ingests = useGrid((s) => s.ingests);
+  const workspaceId = useGrid((s) => s.workspaceId);
   const clearDone = useGrid((s) => s.clearDoneIngests);
+  const upsertIngest = useGrid((s) => s.upsertIngest);
+
   const entries = Object.values(ingests).sort((a, b) => b.updated_at - a.updated_at);
   if (entries.length === 0) return null;
 
   const activeCount = entries.filter((e) => e.stage !== "ready" && e.stage !== "failed").length;
+
+  const handleRetry = async (docId: string) => {
+    if (!workspaceId) return;
+    upsertIngest({ document_id: docId, stage: "queued" } as Parameters<typeof upsertIngest>[0]);
+    try {
+      await api.reingestDocument(workspaceId, docId);
+    } catch (err) {
+      console.error("Reingest failed:", err);
+    }
+  };
 
   return (
     <div className="border-b border-[var(--color-border)] bg-[var(--color-canvas)] px-4 py-2">
@@ -85,21 +100,46 @@ export function IngestProgress({ onOpen3D }: Props = {}) {
                   style={{ width: `${pct}%` }}
                 />
               </div>
-              <span className="text-[var(--color-muted)] font-[var(--font-mono)] text-[10px] w-40 text-right truncate">
+              <span className="text-[var(--color-muted)] font-[var(--font-mono)] text-[10px] w-40 text-right truncate"
+                    title={isFailed && e.error ? e.error : undefined}>
                 {isFailed && e.error ? e.error
                   : e.stage === "parsing" && e.page && e.of ? `vision ${e.page}/${e.of} pages`
                   : STAGE_LABEL[e.stage as IngestStage] ?? e.stage}
                 {e.stage === "ready" && e.n_pages && ` · ${e.n_pages}pg · ${e.sections}§`}
               </span>
+              {/* Retry button for failed docs */}
+              {isFailed && (
+                <button
+                  onClick={() => handleRetry(e.document_id)}
+                  className="px-1.5 py-0.5 text-[10px] rounded border border-[var(--color-accent-fail)]
+                             text-[var(--color-accent-fail)] hover:bg-[var(--color-accent-fail)]/10
+                             flex items-center gap-1 shrink-0"
+                  title="Retry ingest"
+                >
+                  <RefreshCw className="w-2.5 h-2.5" /> retry
+                </button>
+              )}
               {onOpen3D && isActive && (
                 <button
                   onClick={() => onOpen3D(e.document_id)}
                   className="px-1.5 py-0.5 text-[10px] rounded border border-[var(--color-accent-streaming)]
                              text-[var(--color-accent-streaming)] hover:bg-[var(--color-accent-streaming)]/10
-                             flex items-center gap-1"
+                             flex items-center gap-1 shrink-0"
                   title="Watch ingest in 3D"
                 >
                   <Sparkles className="w-2.5 h-2.5" /> 3D
+                </button>
+              )}
+              {onViewParsed && (e.stage === "ready" || isFailed) && (
+                <button
+                  onClick={() => onViewParsed(e.document_id)}
+                  className="px-1.5 py-0.5 text-[10px] rounded border border-[var(--color-border)]
+                             text-[var(--color-muted)] hover:border-[var(--color-accent-streaming)]
+                             hover:text-[var(--color-accent-streaming)]
+                             flex items-center gap-1 shrink-0"
+                  title="Inspect extracted markdown"
+                >
+                  <FileText className="w-2.5 h-2.5" /> inspect
                 </button>
               )}
             </div>

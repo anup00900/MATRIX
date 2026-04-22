@@ -37,6 +37,7 @@ interface State {
   workspaceId: string | null;
   focused: string | null;
   ingests: Record<string, IngestProgress>;
+  docNames: Record<string, string>; // docId → filename
   sessions: Session[];
   sidebarView: SidebarView;
   show3D: boolean;
@@ -47,7 +48,10 @@ interface State {
   focus: (cellId: string | null) => void;
   upsertIngest: (p: Partial<IngestProgress> & { document_id: string }) => void;
   clearDoneIngests: () => void;
+  setDocNames: (names: Record<string, string>) => void;
   addSession: (s: Session) => void;
+  removeSession: (gridId: string) => void;
+  removeColumn: (colId: string) => void;
   setSidebarView: (v: SidebarView) => void;
   toggleSidebarView: (v: "sessions" | "templates") => void;
   toggle3D: () => void;
@@ -60,6 +64,7 @@ export const useGrid = create<State>()(
       workspaceId: null,
       focused: null,
       ingests: {},
+      docNames: {},
       sessions: [],
       sidebarView: null,
       show3D: false,
@@ -98,8 +103,23 @@ export const useGrid = create<State>()(
           }
           return { ingests: next };
         }),
+      setDocNames: (names) =>
+        set((s) => ({ docNames: { ...s.docNames, ...names } })),
       addSession: (s) =>
         set((st) => ({ sessions: [s, ...st.sessions] })),
+      removeSession: (gridId) =>
+        set((st) => ({ sessions: st.sessions.filter((s) => s.gridId !== gridId) })),
+      removeColumn: (colId) =>
+        set((s) => {
+          if (!s.view) return s;
+          return {
+            view: {
+              ...s.view,
+              columns: s.view.columns.filter((c) => c.id !== colId),
+              cells: s.view.cells.filter((c) => c.column_id !== colId),
+            },
+          };
+        }),
       setSidebarView: (v) => set({ sidebarView: v }),
       toggleSidebarView: (v) =>
         set((s) => ({ sidebarView: s.sidebarView === v ? null : v })),

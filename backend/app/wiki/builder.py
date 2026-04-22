@@ -6,7 +6,7 @@ from ..logging import log
 from ..parser.schema import StructuredDoc, Section, Chunk
 from ..settings import settings
 from .schema import (
-    DocWiki, DocWikiRollup, SectionWikiEntry, SectionIndexItem,
+    DocWiki, DocWikiOverview, SectionWikiEntry, SectionWikiLean, SectionIndexItem, Metric,
     WIKI_SCHEMA_VERSION,
 )
 
@@ -19,23 +19,32 @@ def wiki_path_for(doc_id: str, version: int = WIKI_SCHEMA_VERSION) -> Path:
 
 async def _build_section(section: Section, chunks: list[Chunk]) -> SectionWikiEntry:
     chunk_lines = "\n".join(
-        f"[{c.id}] (p.{c.page}) {c.text[:600]}" for c in chunks[:12]
+        f"[{c.id}] (p.{c.page})\n{c.text[:2000]}" for c in chunks[:12]
     )
     prompt = (
-        f"You are analysing a section of a financial filing.\n\n"
-        f"Section title: {section.title}\n\n"
-        f"Chunks (cite any evidence by chunk id):\n{chunk_lines}\n\n"
-        "Extract: a concise 3-5 sentence summary, named entities, notable claims "
-        "(each with evidence_chunks), quantitative metrics (with chunk_id), and a list "
-        "of questions this section can answer. Do not invent; only use what's present."
+        f"Analyse this document section. It may be a fee schedule, table, financial "
+        f"statement, or narrative text.\n\n"
+        f"Section: {section.title}\n\n"
+        f"Content:\n{chunk_lines}\n\n"
+        "Return JSON with:\n"
+        "- summary: 2-3 sentences describing what this section contains\n"
+        "- metrics: list of ALL quantitative values found. Each metric needs: "
+        "name (descriptive label), value (exact number/string), unit (optional), "
+        "period (optional), chunk_id. Extract EVERY row — do not stop early.\n"
+        "- questions_answered: list of questions this section can answer\n\n"
+        "Only extract what is present. Do not invent."
     )
-    entry = await llm.structured(
+    lean = await llm.structured(
         messages=[{"role": "user", "content": prompt}],
-        schema=SectionWikiEntry,
-        max_tokens=1500,
+        schema=SectionWikiLean,
+        max_tokens=6000,
     )
-    # the model may omit section_id; enforce it
-    entry.section_id = section.id
+    entry = SectionWikiEntry(
+        section_id=section.id,
+        summary=lean.summary,
+        metrics=lean.metrics,
+        questions_answered=lean.questions_answered,
+    )
     return entry
 
 
@@ -62,19 +71,23 @@ async def build_wiki(doc: StructuredDoc) -> DocWiki:
         for s, e in zip(doc.sections, entries)
     ]
 
+    # Collect all metrics directly from section entries (ground truth from extraction)
+    all_metrics: dict[str, "Metric"] = {}
+    for s, e in zip(doc.sections, entries):
+        for m in e.metrics:
+            # Namespaced key: section_title + metric_name, normalised
+            key = f"{s.title}__{m.name}".replace(" ", "_").lower()[:80]
+            all_metrics[key] = m
+
     rollup_prompt = (
-        "Given these section summaries, write a 3-5 sentence overview of the document, "
-        "then return JSON with:\n"
-        "  - overview (str)\n"
-        "  - key_metrics_table: object mapping metric name to "
-        "{name, value, unit, period, chunk_id} — include only the 3-6 most important "
-        "metrics in the document.\n\n"
-        + "\n".join(f"- {s.title}: {s.summary}" for s in section_index)
+        "Write a 3-5 sentence overview of this document based on the section summaries below. "
+        "Return JSON with a single field: overview (string).\n\n"
+        + "\n".join(f"- {s.title}: {e.summary}" for s, e in zip(doc.sections, entries))
     )
     rollup = await llm.structured(
         messages=[{"role": "user", "content": rollup_prompt}],
-        schema=DocWikiRollup,
-        max_tokens=1500,
+        schema=DocWikiOverview,
+        max_tokens=600,
     )
 
     wiki = DocWiki(
@@ -82,13 +95,14 @@ async def build_wiki(doc: StructuredDoc) -> DocWiki:
         overview=rollup.overview,
         section_index=section_index,
         entries=entries,
-        key_metrics_table=rollup.key_metrics_table,
+        key_metrics_table=all_metrics,  # populated from section extractions, not summaries
     )
     path = wiki_path_for(doc.doc_id)
     path.parent.mkdir(parents=True, exist_ok=True)
     with gzip.open(path, "wt") as f:
         f.write(wiki.model_dump_json())
-    log.info("wiki.built", doc_id=doc.doc_id, sections=len(entries))
+    log.info("wiki.built", doc_id=doc.doc_id, sections=len(entries),
+             metrics=len(wiki.key_metrics_table))
     return wiki
 
 

@@ -3,9 +3,9 @@ import { api } from "./api/client";
 import { AskBar } from "./components/AskBar";
 import { CommandBar } from "./components/CommandBar";
 import { FocusPane } from "./components/FocusPane";
-import { IngestFlowOverlay } from "./components/IngestFlowOverlay";
 import { IngestProgress } from "./components/IngestProgress";
 import { InlineFlowPanel } from "./components/InlineFlowPanel";
+import { ParsedPreview } from "./components/ParsedPreview";
 import { Matrix } from "./components/Matrix";
 import { Sidebar } from "./components/Sidebar";
 import { SynthesisDock } from "./components/SynthesisDock";
@@ -19,12 +19,14 @@ export default function App() {
   const [gridId, setGridId] = useState<string | null>(null);
   const {
     setView, upsertCell, setWorkspace, focused, upsertIngest,
-    show3D, toggle3D, addSession,
+    show3D, toggle3D, addSession, setDocNames,
   } = useGrid();
   const workspaceId = useGrid((s) => s.workspaceId);
   const [cmdOpen, setCmdOpen] = useState(false);
   const [flowCellId, setFlowCellId] = useState<string | null>(null);
-  const [ingestFlowDocId, setIngestFlowDocId] = useState<string | null>(null);
+  // ingest doc shown in the right panel (replaces full-screen overlay)
+  const [ingestPanelDocId, setIngestPanelDocId] = useState<string | null>(null);
+  const [parsedPreviewDocId, setParsedPreviewDocId] = useState<string | null>(null);
   const [boot, setBoot] = useState<"idle" | "booting" | "ready" | "error">("idle");
   const [bootErr, setBootErr] = useState<string>("");
   // useRef prevents React StrictMode from double-firing the boot effect
@@ -50,7 +52,7 @@ export default function App() {
     })();
   }, [boot, setWorkspace, addSession]);
 
-  // Workspace SSE: ingest progress
+  // Workspace SSE: ingest progress — auto-open right panel when a doc starts ingesting
   useEffect(() => {
     if (!workspaceId) return;
     const url = `http://127.0.0.1:8000/api/workspaces/${workspaceId}/stream`;
@@ -68,14 +70,35 @@ export default function App() {
         sections: p.sections,
         error: p.error,
       });
+      if (p.filename) setDocNames({ [p.document_id]: p.filename });
+      // Auto-open 3D panel showing ingest pipeline
+      if (p.stage === "queued" || p.stage === "parsing" || p.stage === "indexing" || p.stage === "wiki") {
+        setIngestPanelDocId(p.document_id);
+        if (!useGrid.getState().show3D) toggle3D();
+      }
+      // Clear ingest panel after doc finishes (brief linger so user sees "ready")
+      if (p.stage === "ready" || p.stage === "failed") {
+        setTimeout(() => {
+          setIngestPanelDocId((cur) => (cur === p.document_id ? null : cur));
+        }, 3000);
+      }
     });
     return () => es.close();
-  }, [workspaceId, upsertIngest]);
+  }, [workspaceId, upsertIngest, toggle3D]);
 
   // Grid SSE: cell updates
   useEffect(() => {
     if (!gridId) return;
-    (async () => setView(await api.getGrid(gridId)))();
+    (async () => {
+      setView(await api.getGrid(gridId));
+      const wsId = useGrid.getState().workspaceId;
+      if (wsId) {
+        const docs = await api.listDocuments(wsId);
+        const names: Record<string, string> = {};
+        for (const d of docs) names[d.id] = d.filename;
+        setDocNames(names);
+      }
+    })();
     const es = new EventSource(api.streamUrl(gridId));
     es.addEventListener("cell", (ev: MessageEvent) => {
       const p = JSON.parse(ev.data);
@@ -87,11 +110,12 @@ export default function App() {
         ...(p.confidence !== undefined ? { confidence: p.confidence } : {}),
       });
       if (["retrieving", "drafting", "verifying"].includes(p.state)) {
-        setFlowCellId((cur) => cur ?? p.cell_id);
+        setFlowCellId(p.cell_id);
+        if (!useGrid.getState().show3D) toggle3D();
       }
     });
     return () => es.close();
-  }, [gridId, setView, upsertCell]);
+  }, [gridId, setView, upsertCell, setDocNames]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -102,14 +126,13 @@ export default function App() {
       }
       if (e.key === "Escape") {
         if (cmdOpen) setCmdOpen(false);
-        else if (ingestFlowDocId) setIngestFlowDocId(null);
         else if (flowCellId) setFlowCellId(null);
         else if (focused) useGrid.getState().focus(null);
       }
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
-  }, [cmdOpen, flowCellId, focused, ingestFlowDocId]);
+  }, [cmdOpen, flowCellId, focused]);
 
   // --- Session handlers ---
 
@@ -128,6 +151,7 @@ export default function App() {
 
   const handleSwitchSession = (s: Session) => {
     setFlowCellId(null);
+    setIngestPanelDocId(null);
     setWorkspace(s.workspaceId);
     setGridId(s.gridId);
   };
@@ -164,7 +188,13 @@ export default function App() {
         onToggle3D={toggle3D}
       />
       <AskBar gridId={gridId} />
-      <IngestProgress onOpen3D={(id) => setIngestFlowDocId(id)} />
+      <IngestProgress
+        onOpen3D={(id) => {
+          setIngestPanelDocId(id);
+          if (!useGrid.getState().show3D) toggle3D();
+        }}
+        onViewParsed={(id) => setParsedPreviewDocId(id)}
+      />
 
       {/* Three-panel body */}
       <div className="flex-1 flex min-h-0 overflow-hidden">
@@ -187,14 +217,22 @@ export default function App() {
           <SynthesisDock gridId={gridId} />
         </div>
 
-        {/* Right: inline 3D panel */}
+        {/* Right: inline 3D panel — shows ingest pipeline or cell pipeline */}
         {show3D && (
           <InlineFlowPanel
             cellId={flowCellId}
+            documentId={ingestPanelDocId}
             onClose={toggle3D}
           />
         )}
       </div>
+
+      {parsedPreviewDocId && (
+        <ParsedPreview
+          documentId={parsedPreviewDocId}
+          onClose={() => setParsedPreviewDocId(null)}
+        />
+      )}
 
       <CommandBar
         open={cmdOpen}
@@ -206,11 +244,6 @@ export default function App() {
           if (!show3D) toggle3D();
         }}
       />
-
-      {/* Full-screen overlays (kept for ingest flow only) */}
-      {ingestFlowDocId && (
-        <IngestFlowOverlay documentId={ingestFlowDocId} onClose={() => setIngestFlowDocId(null)} />
-      )}
     </div>
   );
 }

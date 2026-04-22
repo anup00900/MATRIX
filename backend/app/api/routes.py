@@ -1,5 +1,6 @@
 from __future__ import annotations
 import asyncio, json
+from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, Request
 from fastapi.responses import FileResponse
 from sse_starlette.sse import EventSourceResponse
@@ -7,7 +8,7 @@ from sqlmodel import Session, select
 from ..settings import settings
 from ..storage.db import engine
 from ..storage.models import Workspace, Document, Grid, Column, Row, Cell
-from ..services.ingest import ingest_pdf
+from ..services.ingest import ingest_pdf, reingest_pdf
 from ..services.cells import run_cell_job
 from ..services.events import bus
 from ..services.synthesize import synthesize
@@ -128,6 +129,19 @@ async def add_column(grid_id: str, body: AddColumnIn, s: Session = Depends(_sess
     return col
 
 
+@r.delete("/columns/{column_id}", status_code=204)
+def delete_column(column_id: str, s: Session = Depends(_session)):
+    col = s.get(Column, column_id)
+    if col is None:
+        raise HTTPException(404)
+    cells = s.exec(select(Cell).where(Cell.column_id == column_id)).all()
+    for c in cells:
+        s.delete(c)
+    s.delete(col)
+    s.commit()
+    return Response(status_code=204)
+
+
 @r.patch("/columns/{column_id}")
 def edit_column(column_id: str, body: EditColumnIn, s: Session = Depends(_session)):
     col = s.get(Column, column_id)
@@ -183,6 +197,46 @@ def export_csv_ep(grid_id: str):
 @r.get("/grids/{grid_id}/export.json")
 def export_json_ep(grid_id: str):
     return JSONResponse(export_json(grid_id))
+
+
+@r.post("/workspaces/{ws_id}/documents/{document_id}/reingest")
+async def reingest_document(ws_id: str, document_id: str):
+    await reingest_pdf(doc_id=document_id)
+    return {"ok": True}
+
+
+@r.get("/documents/{document_id}/pages/{page_no}/image")
+def get_page_image(document_id: str, page_no: int, s: Session = Depends(_session)):
+    d = s.get(Document, document_id)
+    if d is None:
+        raise HTTPException(404)
+    img_path = settings.page_images_dir / d.sha256 / f"{page_no:03d}.png"
+    if not img_path.exists():
+        raise HTTPException(404)
+    return FileResponse(img_path, media_type="image/png")
+
+
+@r.get("/documents/{document_id}/parsed")
+def get_parsed(document_id: str, s: Session = Depends(_session)):
+    """Return per-page markdown extracted from the PDF, for preview."""
+    d = s.get(Document, document_id)
+    if d is None or not d.parsed_path:
+        raise HTTPException(404)
+    p = Path(d.parsed_path)
+    if not p.exists():
+        raise HTTPException(404)
+    from ..parser.schema import StructuredDoc
+    doc = StructuredDoc.model_validate_json(p.read_text())
+    return {
+        "document_id": document_id,
+        "filename": d.filename,
+        "n_pages": doc.n_pages,
+        "pages": [{"page_no": pg.page_no, "markdown": pg.markdown, "failed": pg.failed}
+                  for pg in doc.pages],
+        "sections": [{"id": sec.id, "title": sec.title, "page_start": sec.page_start,
+                      "page_end": sec.page_end} for sec in doc.sections],
+        "n_chunks": len(doc.chunks),
+    }
 
 
 @r.get("/pdf/{document_id}")

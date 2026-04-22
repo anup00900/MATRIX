@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ingest Redesign — Approaches</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #09090b;
+    color: #e4e4e7;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.6;
+    padding: 32px 40px 80px;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+  h1 { font-size: 24px; font-weight: 700; color: #f4f4f5; margin-bottom: 6px; }
+  .tagline { color: #71717a; font-size: 14px; margin-bottom: 36px; }
+  h2 { font-size: 13px; font-weight: 700; color: #10b981; text-transform: uppercase; letter-spacing: 0.08em; margin: 36px 0 16px; }
+
+  /* ── APPROACH CARDS ── */
+  .approach { background: #111113; border: 1.5px solid #27272a; border-radius: 12px; padding: 24px; margin-bottom: 24px; cursor: pointer; transition: border-color 0.15s; }
+  .approach:hover { border-color: #3f3f46; }
+  .approach.selected { border-color: #10b981; background: #0a1a12; }
+  .approach-header { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
+  .approach-letter { width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 700; flex-shrink: 0; }
+  .letter-a { background: #1c1a2e; color: #a78bfa; }
+  .letter-b { background: #0c1825; color: #38bdf8; }
+  .letter-c { background: #1a1205; color: #f59e0b; }
+  .approach-title { font-size: 16px; font-weight: 600; color: #f4f4f5; }
+  .approach-subtitle { font-size: 12px; color: #71717a; margin-top: 2px; }
+  .recommend-badge { margin-left: auto; background: #052e16; color: #10b981; border: 1px solid #065f46; border-radius: 4px; font-size: 10px; font-weight: 700; padding: 3px 9px; text-transform: uppercase; letter-spacing: 0.06em; }
+
+  /* ── FLOW ── */
+  .flow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 14px 0; }
+  .fbox { border-radius: 6px; padding: 7px 12px; font-size: 12px; white-space: nowrap; }
+  .fb-pdf    { background: #1c1107; border: 1px solid #78350f; color: #fbbf24; }
+  .fb-render { background: #0c0f1a; border: 1px solid #1e3a5f; color: #7dd3fc; }
+  .fb-base64 { background: #13091e; border: 1px solid #4c1d95; color: #c4b5fd; }
+  .fb-api    { background: #052e16; border: 1px solid #065f46; color: #6ee7b7; }
+  .fb-json   { background: #18181b; border: 1px solid #3f3f46; color: #a1a1aa; }
+  .fb-agg    { background: #052e16; border: 1px solid #065f46; color: #34d399; }
+  .farr { color: #3f3f46; font-size: 16px; }
+
+  /* ── PROMPT PREVIEW ── */
+  .prompt-box {
+    background: #0a0a0c;
+    border: 1px solid #1e1e22;
+    border-left: 3px solid #27272a;
+    border-radius: 6px;
+    padding: 12px 14px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    color: #71717a;
+    white-space: pre-wrap;
+    line-height: 1.75;
+    margin: 12px 0;
+  }
+  .prompt-box .k { color: #10b981; }
+  .prompt-box .p { color: #38bdf8; }
+  .prompt-box .o { color: #f59e0b; }
+
+  /* ── PROS/CONS ── */
+  .pc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 14px; }
+  .pros, .cons { background: #0f0f11; border-radius: 6px; padding: 12px 14px; }
+  .pros-title { color: #10b981; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
+  .cons-title { color: #f43f5e; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
+  .pc-item { font-size: 12px; color: #a1a1aa; padding: 3px 0; border-bottom: 1px solid #1c1c1f; display: flex; gap: 8px; }
+  .pc-item:last-child { border-bottom: none; }
+  .pc-dot-g { color: #10b981; }
+  .pc-dot-r { color: #f43f5e; }
+
+  /* ── COST TABLE ── */
+  .cost-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 14px; }
+  .cost-table th { background: #18181b; color: #71717a; padding: 8px 12px; border: 1px solid #27272a; text-align: left; font-weight: 600; }
+  .cost-table td { padding: 8px 12px; border: 1px solid #1c1c1f; color: #a1a1aa; }
+  .cost-table .highlight { color: #f4f4f5; }
+  .cost-table tr.rec { background: #0a1a12; }
+
+  /* ── BATCH DIAGRAM ── */
+  .batch-diagram { display: flex; gap: 10px; flex-wrap: wrap; margin: 14px 0; align-items: flex-start; }
+  .page-thumb { width: 52px; height: 68px; background: #18181b; border: 1px solid #27272a; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 10px; color: #52525b; flex-direction: column; gap: 2px; }
+  .page-thumb .pn { font-size: 11px; color: #a1a1aa; font-weight: 600; }
+  .batch-bracket { display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  .batch-label { font-size: 11px; color: #10b981; background: #052e16; border: 1px solid #065f46; border-radius: 4px; padding: 2px 8px; white-space: nowrap; }
+  .page-group { display: flex; gap: 6px; padding: 8px; border: 1px dashed #27272a; border-radius: 8px; }
+  .page-group.active { border-color: #10b981; background: #030f08; }
+
+  .note { background: #0f0f11; border: 1px solid #1c1c1f; border-radius: 6px; padding: 10px 14px; font-size: 12px; color: #71717a; margin-top: 10px; }
+  .note strong { color: #a1a1aa; }
+  .divider { border: none; border-top: 1px solid #1c1c1f; margin: 32px 0; }
+  .selection-hint { text-align: center; color: #3f3f46; font-size: 12px; margin-top: 32px; }
+</style>
+<script>
+function select(id) {
+  document.querySelectorAll('.approach').forEach(el => el.classList.remove('selected'));
+  document.getElementById(id).classList.add('selected');
+  if (window.__companions) window.__companions.recordChoice(id);
+}
+</script>
+</head>
+<body>
+
+<h1>Stage 1 Ingest Redesign</h1>
+<p class="tagline">PDF pages → images → GPT-4.1 Vision API for extraction. Three ways to do it.</p>
+
+<!-- ══════════════════════════════════════ APPROACH A ══════════════════════════════════════ -->
+<div class="approach" id="a" onclick="select('a')">
+  <div class="approach-header">
+    <div class="approach-letter letter-a">A</div>
+    <div>
+      <div class="approach-title">Batch images → one GPT-4.1 call extracts everything</div>
+      <div class="approach-subtitle">5 pages per call · text + sections + tables in one shot</div>
+    </div>
+    <div class="recommend-badge">⭐ Recommended</div>
+  </div>
+
+  <div class="flow">
+    <div class="fbox fb-pdf">PDF file</div>
+    <div class="farr">→</div>
+    <div class="fbox fb-render">pdf2image renders pages<br><small>PNG @ 150 DPI</small></div>
+    <div class="farr">→</div>
+    <div class="fbox fb-base64">base64 encode<br><small>5 pages per batch</small></div>
+    <div class="farr">→</div>
+    <div class="fbox fb-api">GPT-4.1 Vision API<br><small>1 call per batch</small></div>
+    <div class="farr">→</div>
+    <div class="fbox fb-json">per-page JSON<br><small>text + headings + tables</small></div>
+    <div class="farr">→</div>
+    <div class="fbox fb-agg">StructuredDoc</div>
+  </div>
+
+  <p style="color:#71717a; font-size:12px; margin-bottom:10px;">How batching works for a 40-page 10-K (batch size = 5):</p>
+  <div class="batch-diagram">
+    <div>
+      <div class="page-group active">
+        <div class="page-thumb"><div class="pn">p1</div>📄</div>
+        <div class="page-thumb"><div class="pn">p2</div>📄</div>
+        <div class="page-thumb"><div class="pn">p3</div>📄</div>
+        <div class="page-thumb"><div class="pn">p4</div>📄</div>
+        <div class="page-thumb"><div class="pn">p5</div>📄</div>
+      </div>
+      <div style="text-align:center; margin-top:4px;"><span class="batch-label">Call 1 of 8</span></div>
+    </div>
+    <div class="farr" style="margin-top:30px;">→</div>
+    <div>
+      <div class="page-group">
+        <div class="page-thumb"><div class="pn">p6</div>📄</div>
+        <div class="page-thumb"><div class="pn">p7</div>📄</div>
+        <div class="page-thumb"><div class="pn">p8</div>📄</div>
+        <div class="page-thumb"><div class="pn">p9</div>📄</div>
+        <div class="page-thumb"><div class="pn">p10</div>📄</div>
+      </div>
+      <div style="text-align:center; margin-top:4px;"><span class="batch-label" style="background:#18181b;border-color:#27272a;color:#52525b;">Call 2 of 8</span></div>
+    </div>
+    <div class="farr" style="margin-top:30px; color:#1c1c1f;">→ …</div>
+  </div>
+
+  <p style="color:#71717a; font-size:12px; margin: 14px 0 8px;">Prompt sent per batch (each call sees 5 page images):</p>
+  <div class="prompt-box"><span class="k">You are extracting structured content from pages of a financial filing.</span>
+<span class="k">For each page image provided, return a JSON array where each element is:</span>
+<span class="o">{
+  "page_no": int,
+  "text": "full extracted text of the page",
+  "headings": [{"text": str, "level": 1|2|3}],
+  "tables": [{"caption": str, "markdown": str}],
+  "is_mostly_image": bool
+}</span>
+
+<span class="p">[image: page 1]</span>
+<span class="p">[image: page 2]</span>
+<span class="p">[image: page 3]</span>
+<span class="p">[image: page 4]</span>
+<span class="p">[image: page 5]</span>
+
+<span class="k">Return only valid JSON. Do not invent content not visible in the images.</span></div>
+
+  <div class="pc-grid">
+    <div class="pros">
+      <div class="pros-title">Pros</div>
+      <div class="pc-item"><span class="pc-dot-g">✓</span> GPT-4.1 sees actual visual layout — handles multi-column, complex tables natively</div>
+      <div class="pc-item"><span class="pc-dot-g">✓</span> No PyMuPDF text extraction at all</div>
+      <div class="pc-item"><span class="pc-dot-g">✓</span> Scanned pages work without separate OCR step</div>
+      <div class="pc-item"><span class="pc-dot-g">✓</span> Heading detection is visual (font size, bold) — more reliable than heuristics</div>
+      <div class="pc-item"><span class="pc-dot-g">✓</span> Tables extracted as proper markdown — not garbled text</div>
+    </div>
+    <div class="cons">
+      <div class="cons-title">Cons</div>
+      <div class="pc-item"><span class="pc-dot-r">✗</span> No pixel bboxes (GPT-4.1 can't return coordinates) — citations lose PDF highlight positions</div>
+      <div class="pc-item"><span class="pc-dot-r">✗</span> Higher cost vs local PyMuPDF (~8 API calls for 40-page doc)</div>
+      <div class="pc-item"><span class="pc-dot-r">✗</span> Slower ingest (sequential batches unless parallelised)</div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════ APPROACH B ══════════════════════════════════════ -->
+<div class="approach" id="b" onclick="select('b')">
+  <div class="approach-header">
+    <div class="approach-letter letter-b">B</div>
+    <div>
+      <div class="approach-title">Two-pass: images → raw text, then text → structure</div>
+      <div class="approach-subtitle">Pass 1 (vision): extract text only · Pass 2 (text): detect sections + chunk</div>
+    </div>
+  </div>
+
+  <div class="flow">
+    <div class="fbox fb-pdf">PDF file</div>
+    <div class="farr">→</div>
+    <div class="fbox fb-render">pdf2image renders pages</div>
+    <div class="farr">→</div>
+    <div class="fbox fb-api">GPT-4.1 Vision<br><small>text only per batch</small></div>
+    <div class="farr">→</div>
+    <div class="fbox fb-json">raw text per page</div>
+    <div class="farr">→</div>
+    <div class="fbox fb-api">GPT-4.1 text<br><small>section + chunk plan</small></div>
+    <div class="farr">→</div>
+    <div class="fbox fb-agg">StructuredDoc</div>
+  </div>
+
+  <p style="color:#71717a; font-size:12px; margin: 12px 0 6px;">Pass 1 prompt (vision, simple):</p>
+  <div class="prompt-box"><span class="k">Transcribe the text from each page image exactly as it appears.</span>
+<span class="k">Preserve paragraph breaks. For tables, render as markdown.</span>
+Return JSON array: <span class="o">[{ "page_no": int, "text": str }]</span>
+
+<span class="p">[image: page 1] ... [image: page 5]</span></div>
+
+  <p style="color:#71717a; font-size:12px; margin: 12px 0 6px;">Pass 2 prompt (text only, cheap):</p>
+  <div class="prompt-box"><span class="k">Given the full text of a financial filing (pages concatenated),</span>
+<span class="k">identify section boundaries, headings, and their page numbers.</span>
+Return JSON: <span class="o">{ sections: [{ title, level, page_start, page_end }] }</span>
+
+<span class="p">[full text from pass 1]</span></div>
+
+  <div class="pc-grid">
+    <div class="pros">
+      <div class="pros-title">Pros</div>
+      <div class="pc-item"><span class="pc-dot-g">✓</span> Cleaner separation of concerns — easy to debug each step</div>
+      <div class="pc-item"><span class="pc-dot-g">✓</span> Pass 2 is text-only (cheap) — most cost is in Pass 1</div>
+    </div>
+    <div class="cons">
+      <div class="cons-title">Cons</div>
+      <div class="pc-item"><span class="pc-dot-r">✗</span> Two full LLM passes per doc — more total calls than Approach A</div>
+      <div class="pc-item"><span class="pc-dot-r">✗</span> No bboxes (same as A)</div>
+      <div class="pc-item"><span class="pc-dot-r">✗</span> Pass 1 misses structural signals (headings visible visually) — Pass 2 can't recover them from plain text</div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════ APPROACH C ══════════════════════════════════════ -->
+<div class="approach" id="c" onclick="select('c')">
+  <div class="approach-header">
+    <div class="approach-letter letter-c">C</div>
+    <div>
+      <div class="approach-title">One image per API call — fine-grained, parallelised</div>
+      <div class="approach-subtitle">Max fidelity · 1 call per page · run all calls in parallel</div>
+    </div>
+  </div>
+
+  <div class="flow">
+    <div class="fbox fb-pdf">PDF file</div>
+    <div class="farr">→</div>
+    <div class="fbox fb-render">pdf2image renders all pages</div>
+    <div class="farr">→</div>
+    <div class="fbox fb-api">GPT-4.1 Vision<br><small>1 call per page (parallel)</small></div>
+    <div class="farr">→</div>
+    <div class="fbox fb-json">per-page structured JSON</div>
+    <div class="farr">→</div>
+    <div class="fbox fb-agg">StructuredDoc</div>
+  </div>
+
+  <div class="note">
+    <strong>Parallelism:</strong> All 40 page calls fired concurrently (bounded by TPM budget). The Azure TPM budget in <code>jobs/budget.py</code> already handles this — ingest draws from the same token-bucket as wiki builds and cell runs.
+  </div>
+
+  <div class="pc-grid">
+    <div class="pros">
+      <div class="pros-title">Pros</div>
+      <div class="pc-item"><span class="pc-dot-g">✓</span> Highest fidelity — each page gets full attention</div>
+      <div class="pc-item"><span class="pc-dot-g">✓</span> Parallelised — wall-clock time similar to Approach A</div>
+      <div class="pc-item"><span class="pc-dot-g">✓</span> Easy to retry a single failed page</div>
+    </div>
+    <div class="cons">
+      <div class="cons-title">Cons</div>
+      <div class="pc-item"><span class="pc-dot-r">✗</span> Most expensive — 40 calls vs 8 for a 40-page doc</div>
+      <div class="pc-item"><span class="pc-dot-r">✗</span> Context doesn't span pages — a table that spans p.12–p.13 gets split</div>
+      <div class="pc-item"><span class="pc-dot-r">✗</span> Cross-page sections harder to detect</div>
+    </div>
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- ── COST COMPARISON ── -->
+<h2>Cost + Call Count Comparison (40-page 10-K)</h2>
+<table class="cost-table">
+  <thead>
+    <tr>
+      <th>Approach</th>
+      <th>API Calls</th>
+      <th>Vision tokens (est.)</th>
+      <th>Total LLM calls (incl. wiki + cells)</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr class="rec">
+      <td class="highlight">A — Batch (5 pages/call)</td>
+      <td class="highlight">8 vision calls</td>
+      <td>~40k img tokens</td>
+      <td>+8 over current</td>
+      <td>Best balance. Recommended.</td>
+    </tr>
+    <tr>
+      <td>B — Two-pass</td>
+      <td>8 vision + 1 text</td>
+      <td>~40k img tokens</td>
+      <td>+9 over current</td>
+      <td>More calls, less structural info</td>
+    </tr>
+    <tr>
+      <td>C — One per page</td>
+      <td>40 vision calls</td>
+      <td>~40k img tokens</td>
+      <td>+40 over current</td>
+      <td>Expensive, splits cross-page tables</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="note" style="margin-top:16px;">
+  <strong>Bbox note (all approaches):</strong> GPT-4.1 Vision doesn't return pixel coordinates. To keep PDF citation highlights working, the simplest fix is to use <code>pdf2image</code> only for rendering (no text extraction from PyMuPDF), then map extracted text back to page number — citations become page-level only, not bbox-level. This is a trade-off worth discussing.
+</div>
+
+<p class="selection-hint">Click an approach above to select it, then reply in the terminal.</p>
+
+</body>
+</html>

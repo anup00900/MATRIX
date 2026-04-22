@@ -44,7 +44,8 @@ async def _run_pipeline(
         async def on_page(page_no: int, total: int) -> None:
             await emit("parsing", page=page_no, of=total)
 
-        parsed = await parse_pdf(pdf_path, on_page_done=on_page)
+        images_dir = settings.page_images_dir / sha
+        parsed = await parse_pdf(pdf_path, on_page_done=on_page, save_images_dir=images_dir)
         parsed.meta = await extract_doc_meta(parsed)
         parsed_path = settings.parsed_dir / f"{sha}.json"
         parsed_path.write_text(parsed.model_dump_json())
@@ -129,3 +130,31 @@ async def ingest_pdf(
     ))
 
     return doc_id
+
+
+async def reingest_pdf(*, doc_id: str) -> None:
+    """Reset a failed/ready document and re-run the ingest pipeline."""
+    with Session(engine) as sess:
+        d = sess.get(Document, doc_id)
+        if d is None:
+            raise ValueError(f"Document {doc_id} not found")
+        d.status = "queued"
+        d.error = None
+        sess.add(d); sess.commit()
+        workspace_id = d.workspace_id
+        filename = d.filename
+        sha = d.sha256
+
+    pdf_path = settings.pdfs_dir / f"{sha}.pdf"
+    await bus.publish(f"workspace:{workspace_id}", {
+        "type": "document",
+        "document_id": doc_id,
+        "filename": filename,
+        "sha": sha[:8],
+        "stage": "queued",
+    })
+    asyncio.ensure_future(_run_pipeline(
+        doc_id=doc_id, workspace_id=workspace_id,
+        filename=filename, sha=sha, pdf_path=pdf_path,
+        build_wiki_stage=True,
+    ))
