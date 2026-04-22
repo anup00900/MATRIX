@@ -37,8 +37,12 @@ def _empty_cell_ratio(table_text: str) -> tuple[float, int, int]:
 
     - Counts only rows that start (after strip) with '|'.
     - Skips the header row (first such row) and the separator row (contains '---').
+    - Treats the first cell of each data row as a row label and excludes it from
+      the count. A 2-column table therefore has 1 data cell per row; a 1-column
+      table has 0 data cells and will never be flagged.
     - Treats whitespace-only cells between pipes as empty.
-    - Returns (0.0, 0, 0) if fewer than 2 data rows exist.
+    - Returns (0.0, 0, 0) if fewer than 2 data rows exist or no data cells remain
+      after excluding row labels.
     """
     rows = [
         ln.strip() for ln in table_text.splitlines()
@@ -62,7 +66,7 @@ def _empty_cell_ratio(table_text: str) -> tuple[float, int, int]:
     empty = 0
     for r in data_rows:
         # Split and drop the leading/trailing empty strings from outer pipes.
-        parts = [p for p in r.split("|")]
+        parts = r.split("|")
         if parts and parts[0] == "":
             parts = parts[1:]
         if parts and parts[-1] == "":
