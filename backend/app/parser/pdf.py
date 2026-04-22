@@ -275,6 +275,59 @@ TABLE_VALIDATE_SYSTEM = (
     '[{"page_no": <int>, "markdown": "<corrected page content>"}]'
 )
 
+# ── Chart extraction prompt (Pass C1) ────────────────────────────────────────
+CHART_EXTRACT_SYSTEM = (
+    "You are a chart-and-graph-to-markdown extractor.\n"
+    "This page contains one or more charts or graphs. The embedded PDF text "
+    "does NOT carry the numeric data values — the values are encoded in the "
+    "chart image (bar heights, line points, pie slice angles, etc.).\n"
+    "Read every data point directly from the page image at 200 DPI.\n\n"
+
+    "━━ COMPLETENESS RULES (hard guarantees) ━━\n\n"
+    "  1. You MUST include every visible data point. Count the bars (or line "
+    "points, or pie slices) in the image and produce the same count of rows "
+    "(or pie entries) in the data table.\n"
+    "  2. You MUST include every series shown in the legend. Count the legend "
+    "entries and produce the same count of columns in the data table.\n"
+    "  3. You MUST include every x-axis tick that carries a data point.\n"
+    "  4. If you are uncertain about a value, still include the data point "
+    "with your best visual reading — never omit it.\n\n"
+
+    "━━ ACCURACY RULES ━━\n\n"
+    "  5. Identify the minor tick increment on the y-axis (e.g., 50 units).\n"
+    "  6. Read each bar height or line point by interpolating between ticks. "
+    "If a value falls exactly on a tick, use that tick value.\n"
+    "  7. Preserve the axis unit. If y-axis label says '$ in billions', the "
+    "data table header must say '($B)' or similar.\n"
+    "  8. When x-axis values are dates / fiscal years, preserve the exact "
+    "formatting as printed on the axis.\n\n"
+
+    "━━ OUTPUT FORMAT — one block per chart, in this exact order ━━\n\n"
+    "  `### <chart title as printed on the page>`\n"
+    "  `**Chart type:** <grouped bar / stacked bar / line / area / pie / scatter / etc.>`\n"
+    "  `**X-axis:** <label> (<range>, <tick unit>)`\n"
+    "  `**Y-axis:** <label> (<range>, <tick unit>)`\n"
+    "  `**Series:** <comma-separated series names from the legend>`\n"
+    "  A markdown data table with one column for the x-axis label and one "
+    "column per series. EVERY cell must be filled.\n"
+    "  `**Year-over-year changes:**` — per-series absolute and % delta list "
+    "(only when x-axis is time-like).\n"
+    "  `**CAGR (<start>–<end>):**` — per-series compound annual growth rate "
+    "(only when x-axis is time-like with >= 2 periods).\n"
+    "  `**Min / Max:**` — per-series minimum and maximum with their x-axis "
+    "positions.\n"
+    "  `**Series comparison:**` — 1–3 sentences on key cross-series "
+    "relationships.\n"
+    "  `**Trend:**` — 2–4 sentence paragraph.\n"
+    "  `**Key observations:**` — 3–6 bullets.\n"
+    "  `**Anomalies / inflection points:**` — callouts or the literal text "
+    "'None observed.'\n\n"
+
+    "Return ONLY valid JSON — no markdown fences, no explanation:\n"
+    '[{"page_no": <int>, "chart_index": <int starting at 0>, '
+    '"markdown": "<complete chart block>"}]'
+)
+
 
 def _sha256(path: Path) -> str:
     h = hashlib.sha256()
@@ -542,6 +595,108 @@ def _chunk_text(
                 i += target_tokens - overlap
 
     return out
+
+
+async def _extract_charts(
+    regions_by_page: dict[int, list[ChartRegion]],
+    pages_raw: list[tuple[int, str, float, float, str]],
+) -> dict[tuple[int, int], str]:
+    """Pass C1 — read chart data directly from the page image.
+
+    Returns {(page_no, chart_index): markdown_block}. On any failure for a
+    given page, that page's entries are simply absent — the caller leaves the
+    original markdown untouched (no regression).
+    """
+    if not regions_by_page:
+        return {}
+
+    raw_by_pno = {pno: (b64, fitz_text) for pno, b64, _, _, fitz_text in pages_raw}
+
+    async def _run_one(page_no: int, regions: list[ChartRegion]) -> dict[tuple[int, int], str]:
+        raw = raw_by_pno.get(page_no)
+        if raw is None:
+            return {}
+        b64, fitz_text = raw
+
+        # Build a user message describing what the first-pass saw for each region.
+        region_descriptions = []
+        for r in regions:
+            if r.kind == "empty_cells":
+                region_descriptions.append(
+                    f"Chart {r.chart_index}: the first-pass emitted the "
+                    f"following table with empty data cells — re-read the "
+                    f"chart image to fill the values:\n{r.original_text}"
+                )
+            else:
+                region_descriptions.append(
+                    f"Chart {r.chart_index}: the first-pass omitted this "
+                    f"chart entirely — extract the full chart block from the "
+                    f"page image."
+                )
+        regions_text = "\n\n".join(region_descriptions)
+
+        content: list[dict] = [
+            {"type": "text", "text": f"Page {page_no} — {len(regions)} chart(s) to extract."},
+            {"type": "text", "text": regions_text},
+        ]
+        if fitz_text:
+            content.append({
+                "type": "text",
+                "text": (
+                    f"[Embedded PDF text for page {page_no} — use for axis "
+                    f"labels and legend names, NOT for numeric values]\n"
+                    f"{fitz_text}\n[End embedded text]"
+                ),
+            })
+        content.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:image/png;base64,{b64}"},
+        })
+
+        try:
+            resp = await llm.client.chat.completions.create(
+                model=llm.deployment,
+                temperature=0.0,
+                max_tokens=6000,
+                messages=[
+                    {"role": "system", "content": CHART_EXTRACT_SYSTEM},
+                    {"role": "user", "content": content},
+                ],
+            )
+            if resp.usage:
+                llm._cost_tokens += resp.usage.total_tokens
+            text = (resp.choices[0].message.content or "").strip()
+            if text.startswith("```"):
+                text = re.sub(r"^```[a-z]*\n?", "", text)
+                text = re.sub(r"```\s*$", "", text.strip())
+            parsed: list[dict] = json.loads(text)
+            out: dict[tuple[int, int], str] = {}
+            for item in parsed:
+                pno = int(item.get("page_no", page_no))
+                cidx = int(item.get("chart_index", 0))
+                md = item.get("markdown") or ""
+                if md.strip():
+                    out[(pno, cidx)] = md
+            log.info("parser.chart.c1_done", page=page_no, n_charts=len(out))
+            return out
+        except Exception as e:
+            log.warning("parser.chart.c1_failed", page=page_no, error=str(e)[:300])
+            return {}
+
+    sem = asyncio.Semaphore(BATCH_CONCURRENCY)
+
+    async def _guarded(page_no: int, regions: list[ChartRegion]):
+        async with sem:
+            return await _run_one(page_no, regions)
+
+    results = await asyncio.gather(*(
+        _guarded(pno, regs) for pno, regs in regions_by_page.items()
+    ))
+
+    merged: dict[tuple[int, int], str] = {}
+    for r in results:
+        merged.update(r)
+    return merged
 
 
 async def parse_pdf(

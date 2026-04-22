@@ -381,3 +381,96 @@ def test_splice_image_no_table_no_trailing_newline():
     assert "Some prose### Chart" not in new_md
     # Specifically, prose ends with \n before the chart block.
     assert "Some prose\n### Chart" in new_md
+
+
+import json as _json
+from unittest.mock import AsyncMock, MagicMock
+from app.parser.pdf import _extract_charts, CHART_EXTRACT_SYSTEM
+
+
+def test_chart_extract_system_prompt_contains_required_sections():
+    # Sanity check: the prompt must tell the model to read values from the image
+    # and to emit the C-format block.
+    p = CHART_EXTRACT_SYSTEM
+    assert "image" in p.lower()
+    assert "every visible data point" in p.lower() or "every data point" in p.lower()
+    assert "series" in p.lower()
+    assert "trend" in p.lower()
+    assert "yoy" in p.lower() or "year-over-year" in p.lower()
+    assert "cagr" in p.lower()
+
+
+def _mock_llm_response(content: str):
+    resp = MagicMock()
+    msg = MagicMock()
+    msg.content = content
+    resp.choices = [MagicMock(message=msg)]
+    resp.usage = None
+    return resp
+
+
+@pytest.mark.asyncio
+async def test_extract_charts_parses_response(monkeypatch):
+    # Simulated page: page 3, one empty-cell region.
+    page = _make_page(3, "| Year | Revenue |\n|---|---|\n| FY2022 |  |\n")
+    regions = _find_chart_regions(page)
+    pages_raw = [(3, "b64data", 612.0, 792.0, "Some fitz text")]
+
+    response_json = _json.dumps([{
+        "page_no": 3,
+        "chart_index": 0,
+        "markdown": "### Annual Revenue\n**Chart type:** bar\n\n| Year | Revenue |\n|---|---|\n| FY2022 | 27 |\n",
+    }])
+    fake_create = AsyncMock(return_value=_mock_llm_response(response_json))
+    monkeypatch.setattr(pdf_mod.llm.client.chat.completions, "create", fake_create)
+
+    blocks = await _extract_charts({3: regions}, pages_raw)
+    assert (3, 0) in blocks
+    assert "### Annual Revenue" in blocks[(3, 0)]
+    assert "| FY2022 | 27 |" in blocks[(3, 0)]
+    # Exactly one LLM call for one chart page.
+    assert fake_create.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_extract_charts_returns_empty_on_api_error(monkeypatch):
+    page = _make_page(3, "| Year | Revenue |\n|---|---|\n| FY2022 |  |\n")
+    regions = _find_chart_regions(page)
+    pages_raw = [(3, "b64data", 612.0, 792.0, "")]
+
+    async def raising_create(**kwargs):
+        raise RuntimeError("boom")
+    monkeypatch.setattr(pdf_mod.llm.client.chat.completions, "create", raising_create)
+
+    blocks = await _extract_charts({3: regions}, pages_raw)
+    assert blocks == {}
+
+
+@pytest.mark.asyncio
+async def test_extract_charts_empty_input_skips_llm(monkeypatch):
+    called = {"n": 0}
+    async def fake_create(**kwargs):
+        called["n"] += 1
+        return _mock_llm_response("[]")
+    monkeypatch.setattr(pdf_mod.llm.client.chat.completions, "create", fake_create)
+
+    blocks = await _extract_charts({}, [])
+    assert blocks == {}
+    assert called["n"] == 0
+
+
+@pytest.mark.asyncio
+async def test_extract_charts_strips_code_fences(monkeypatch):
+    page = _make_page(3, "| Year | Revenue |\n|---|---|\n| FY2022 |  |\n")
+    regions = _find_chart_regions(page)
+    pages_raw = [(3, "b64data", 612.0, 792.0, "")]
+
+    # Model sometimes wraps JSON in ```json ... ``` — the parser must strip it.
+    wrapped = "```json\n" + _json.dumps([{"page_no": 3, "chart_index": 0, "markdown": "### ok\n"}]) + "\n```"
+    monkeypatch.setattr(
+        pdf_mod.llm.client.chat.completions, "create",
+        AsyncMock(return_value=_mock_llm_response(wrapped)),
+    )
+    blocks = await _extract_charts({3: regions}, pages_raw)
+    assert (3, 0) in blocks
+    assert "### ok" in blocks[(3, 0)]
