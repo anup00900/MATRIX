@@ -233,3 +233,18 @@ def test_detect_chart_pages_failed_page_not_flagged():
     image_counts = {5: 1}
     result = _detect_chart_pages([p], image_counts)
     assert result == {}
+
+
+def test_detect_chart_pages_image_no_trailing_newline():
+    # Page markdown without a trailing newline — detector must still anchor
+    # signature-2 insertion past the last content line. Task 4's splice is
+    # responsible for ensuring the preceding line gains a '\n' before the
+    # chart block is inserted.
+    md = "# Heading\n\nSome prose"  # note: no trailing \n
+    pages = [_make_page(6, md)]
+    result = _detect_chart_pages(pages, {6: 1})
+    assert 6 in result
+    r = result[6][0]
+    assert r.kind == "image_no_table"
+    assert r.line_start == len(md.splitlines())
+    assert r.line_end == r.line_start
