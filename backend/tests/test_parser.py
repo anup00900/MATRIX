@@ -92,3 +92,90 @@ def test_chart_region_dataclass_shape():
     assert r.page_no == 3
     assert r.kind == "empty_cells"
     assert r.line_end - r.line_start == 5
+
+
+from app.parser.schema import Page
+from app.parser.pdf import _find_chart_regions
+
+
+def _make_page(page_no: int, markdown: str) -> Page:
+    return Page(page_no=page_no, markdown=markdown, width=612.0, height=792.0, failed=False)
+
+
+def test_find_chart_regions_detects_empty_cell_table():
+    md = (
+        "# FINANCIAL HIGHLIGHTS\n"
+        "\n"
+        "| Year | Revenue | Net Income |\n"
+        "|---|---|---|\n"
+        "| FY2022 |  |  |\n"
+        "| FY2023 |  |  |\n"
+        "| FY2024 |  |  |\n"
+        "\n"
+        "Note: source FY2026 10-K.\n"
+    )
+    page = _make_page(3, md)
+    regions = _find_chart_regions(page)
+    assert len(regions) == 1
+    r = regions[0]
+    assert r.kind == "empty_cells"
+    assert r.page_no == 3
+    assert r.chart_index == 0
+    assert "| FY2022 |" in r.original_text
+    assert "# FINANCIAL HIGHLIGHTS" not in r.original_text
+    assert "Note: source" not in r.original_text
+
+
+def test_find_chart_regions_skips_fully_populated_table():
+    md = (
+        "| Year | Revenue |\n"
+        "|---|---|\n"
+        "| FY2022 | 27 |\n"
+        "| FY2023 | 61 |\n"
+    )
+    page = _make_page(4, md)
+    regions = _find_chart_regions(page)
+    assert regions == []
+
+
+def test_find_chart_regions_multi_region_same_page():
+    md = (
+        "| Year | Revenue | Net Income |\n"
+        "|---|---|---|\n"
+        "| FY2022 |  |  |\n"
+        "| FY2023 |  |  |\n"
+        "\n"
+        "Prose line in the middle.\n"
+        "\n"
+        "| Year | Gross Margin % |\n"
+        "|---|---|\n"
+        "| FY2022 |  |\n"
+        "| FY2023 |  |\n"
+    )
+    page = _make_page(3, md)
+    regions = _find_chart_regions(page)
+    assert len(regions) == 2
+    assert regions[0].chart_index == 0
+    assert regions[1].chart_index == 1
+    assert regions[0].line_start < regions[1].line_start
+
+
+def test_find_chart_regions_coexists_with_real_table():
+    md = (
+        "| Year | Revenue |\n"
+        "|---|---|\n"
+        "| FY2022 | 27 |\n"
+        "| FY2023 | 61 |\n"
+        "\n"
+        "Some prose.\n"
+        "\n"
+        "| Year | Net Income |\n"
+        "|---|---|\n"
+        "| FY2022 |  |\n"
+        "| FY2023 |  |\n"
+    )
+    page = _make_page(3, md)
+    regions = _find_chart_regions(page)
+    assert len(regions) == 1
+    assert "| Net Income |" in regions[0].original_text
+    assert "27" not in regions[0].original_text

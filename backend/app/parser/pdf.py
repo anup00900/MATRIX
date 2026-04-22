@@ -82,6 +82,49 @@ def _empty_cell_ratio(table_text: str) -> tuple[float, int, int]:
     return empty / total, total, empty
 
 
+def _find_chart_regions(page: Page) -> list[ChartRegion]:
+    """Scan a page's markdown for table blocks with >=30% empty data cells.
+
+    Signature 1 — empty-cell tables. Signature 2 (image-without-table) is
+    handled separately in `_detect_chart_pages` because it requires fitz
+    image metadata from the renderer.
+    """
+    if "|" not in page.markdown:
+        return []
+
+    lines = page.markdown.splitlines()
+    regions: list[ChartRegion] = []
+    chart_index = 0
+
+    i = 0
+    while i < len(lines):
+        stripped = lines[i].strip()
+        if not stripped.startswith("|"):
+            i += 1
+            continue
+        # Found the start of a table block; extend while lines stay table-like.
+        start = i
+        while i < len(lines) and lines[i].strip().startswith("|"):
+            i += 1
+        end = i  # exclusive
+        block_text = "\n".join(lines[start:end]) + "\n"
+
+        ratio, total, _empty = _empty_cell_ratio(block_text)
+        if total > 0 and ratio >= EMPTY_CELL_RATIO_THRESHOLD:
+            regions.append(ChartRegion(
+                page_no=page.page_no,
+                chart_index=chart_index,
+                line_start=start,
+                line_end=end,
+                original_text=block_text,
+                kind="empty_cells",
+                image_bbox=None,
+            ))
+            chart_index += 1
+
+    return regions
+
+
 # ── Extraction prompt ────────────────────────────────────────────────────────
 BATCH_SYSTEM = (
     "You are a universal PDF page-to-markdown extractor. "
