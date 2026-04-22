@@ -531,3 +531,28 @@ async def test_verify_charts_empty_input_skips_llm(monkeypatch):
     verified = await _verify_charts({}, [])
     assert verified == {}
     assert called["n"] == 0
+
+
+@pytest.mark.asyncio
+async def test_verify_charts_partial_response_carries_through(monkeypatch):
+    # C1 produced two chart blocks on page 3. The verifier's response only
+    # contains a correction for chart 0. Chart 1 must carry through its C1
+    # block unchanged, and the output dict keys must equal the input keys.
+    c1_blocks = {
+        (3, 0): "### C1 chart0",
+        (3, 1): "### C1 chart1",
+    }
+    pages_raw = [(3, "b64", 612.0, 792.0, "")]
+
+    response_json = _json.dumps([
+        {"page_no": 3, "chart_index": 0, "markdown": "### corrected chart0"},
+    ])
+    monkeypatch.setattr(
+        pdf_mod.llm.client.chat.completions, "create",
+        AsyncMock(return_value=_mock_llm_response(response_json)),
+    )
+
+    verified = await _verify_charts(c1_blocks, pages_raw)
+    assert verified[(3, 0)] == "### corrected chart0"
+    assert verified[(3, 1)] == "### C1 chart1"
+    assert set(verified.keys()) == {(3, 0), (3, 1)}
