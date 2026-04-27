@@ -40,10 +40,16 @@ class WikiRetriever:
             c = chunk_by_id.get(m.chunk_id)
             if c is None:
                 continue
+            # Score against the metric label AND a chunk-text snippet so that
+            # a query like "net income 2025" still matches a chunk whose label
+            # is "Net income per share" but whose text contains the line item.
             label = f"{m.name} {m.unit or ''} {m.period or ''}"
+            label_dist = _overlap_distance(query, label)
+            text_dist = _overlap_distance(query, c.text[:1500])
             hits.append(Evidence(
                 chunk_id=c.id, text=c.text, page=c.page, bboxes=c.bboxes,
-                score=_overlap_distance(query, label), source="wiki.metric",
+                score=min(label_dist, text_dist),
+                source="wiki.metric",
             ))
 
         for entry in self.wiki.entries:
@@ -52,15 +58,19 @@ class WikiRetriever:
                     c = chunk_by_id.get(cid)
                     if c is None:
                         continue
+                    claim_dist = _overlap_distance(query, cl.text)
+                    text_dist = _overlap_distance(query, c.text[:1500])
                     hits.append(Evidence(
                         chunk_id=c.id, text=c.text, page=c.page, bboxes=c.bboxes,
-                        score=_overlap_distance(query, cl.text),
+                        score=min(claim_dist, text_dist),
                         source="wiki.claim",
                     ))
 
-        if len(hits) < k:
-            for e in await self.fallback.retrieve(query, doc, k=k - len(hits)):
-                hits.append(e)  # source stays as "chunk.vector"
+        # Always blend in embedding-based fallback so chunks that the wiki
+        # didn't index (or indexed under an unrelated label) still surface
+        # when the embedding similarity is strong.
+        for e in await self.fallback.retrieve(query, doc, k=max(k, 8)):
+            hits.append(e)
 
         dedup: dict[str, Evidence] = {}
         for e in hits:

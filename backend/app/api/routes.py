@@ -239,6 +239,30 @@ def get_parsed(document_id: str, s: Session = Depends(_session)):
     }
 
 
+@r.get("/documents/{document_id}/wiki")
+def get_wiki_markdown(document_id: str, s: Session = Depends(_session)):
+    """Return the document's wiki rendered as markdown.
+
+    Rebuild via POST /workspaces/{ws_id}/documents/{document_id}/reingest
+    if the wiki is missing or stale.
+    """
+    d = s.get(Document, document_id)
+    if d is None or not d.parsed_path:
+        raise HTTPException(404, "document not found")
+    from ..parser.schema import StructuredDoc
+    from ..wiki.builder import load_wiki
+    from ..wiki.markdown import wiki_to_markdown
+    p = Path(d.parsed_path)
+    if not p.exists():
+        raise HTTPException(404, "parsed doc missing")
+    parsed = StructuredDoc.model_validate_json(p.read_text())
+    wiki = load_wiki(parsed.doc_id)
+    if wiki is None:
+        raise HTTPException(404, "wiki not built — reingest the document")
+    md = wiki_to_markdown(wiki, parsed)
+    return Response(content=md, media_type="text/markdown")
+
+
 @r.get("/pdf/{document_id}")
 def get_pdf(document_id: str, s: Session = Depends(_session)):
     d = s.get(Document, document_id)
